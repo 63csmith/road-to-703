@@ -117,7 +117,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 /* Race bibs: one per teammate, swipe between them */
 .bibs-wrap { display: flex; flex-direction: column; gap: 6px; }
 .bibs {
-  position: relative; display: flex; gap: 10px;
+  position: relative; display: flex; gap: 24px;
   overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch;
   margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
@@ -133,7 +133,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
   background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
   box-shadow: 0 16px 32px -22px var(--shadow);
 }
-.bibs.multi .bib { flex-basis: calc(100% - 26px); }
 .bib-band {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
   padding: 10px 20px; background: var(--band); color: var(--band-ink);
@@ -286,6 +285,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 .seg[data-daylog="trained"][aria-pressed="true"] { background: var(--good); border-color: var(--good); color: var(--on-status); }
 .seg[data-daylog="skipped"][aria-pressed="true"] { background: var(--miss); border-color: var(--miss); color: var(--on-status); }
 .daylog .linkbtn { font-size: 13px; color: var(--muted); }
+.daylog:has(> .day-badge[hidden]:only-child) { display: none; }
 .day-badge { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; color: var(--on-status); }
 .day-badge.trained { background: var(--good); }
 .day-badge.skipped { background: var(--miss); }
@@ -1174,10 +1174,7 @@ function renderPager(ms) {
   dots.innerHTML = ms.map(function (m) {
     return '<button type="button" data-bib="' + m.id + '" aria-label="Show ' + esc(m.name) + (m.id === ME ? ' (you)' : '') + '" aria-current="' + (m.id === VIEW) + '"></button>';
   }).join('');
-  var i = -1;
-  ms.forEach(function (m, k) { if (m.id === VIEW) i = k; });
-  var next = ms[i + 1];
-  hint.textContent = next ? 'Swipe to see ' + next.name : 'Swipe back to you';
+  hint.textContent = '';
 }
 
 function scrollBibTo(mid, smooth) {
