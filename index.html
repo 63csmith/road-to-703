@@ -486,10 +486,8 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
 <script>
 /* ---------- Config ---------- */
 var API = 'https://xsfptlfebxasxqgovktu.supabase.co/rest/v1/rpc/';
-var API_KEYS = [
-  { key: 'sb_publishable_I_yxeKhncGm2NvBGS6Z40A_h_Wh9m4i', bearer: false },
-  { key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZnB0bGZlYnhhc3hxZ292a3R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxOTcyNTMsImV4cCI6MjEwODc3MzI1M30.TZN2WxrWwthg_lykRKgnv1xzaxdIPlxAWfj5M3gZ6PQ', bearer: true }
-];
+// Supabase publishable key. It is meant to be public: it can only call the team-code functions.
+var API_KEY = 'sb_publishable_I_yxeKhncGm2NvBGS6Z40A_h_Wh9m4i';
 
 /* ---------- Plan ---------- */
 var PLAN_START = '2026-10-26';
@@ -788,13 +786,12 @@ function fmtDist(v, unit) { return unit === 'yd' ? Math.round(v).toLocaleString(
 function fmtH(min) { return (Math.round(min / 6) / 10).toFixed(1); }
 
 /* ---------- Storage ---------- */
-var K = { code: 'r703.code', me: 'r703.me', cache: 'r703.cache', out: 'r703.outbox', key: 'r703.key', tip: 'r703.tip', view: 'r703.view' };
+var K = { code: 'r703.code', me: 'r703.me', cache: 'r703.cache', out: 'r703.outbox', tip: 'r703.tip', view: 'r703.view' };
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
 
 /* ---------- Team state ---------- */
 var CODE = null, ME = null, VIEW = null, T = null, OUT = {};
-var keyIdx = lsGet(K.key) === '1' ? 1 : 0;
 var MIN_RACE = ds(dn(PLAN_START) + 56);
 var MAX_RACE = ds(dn(PLAN_START) + 7 * 60);
 var plan = buildPlan(DEFAULT_RACE);
@@ -847,18 +844,13 @@ function toast(msg) { var t = $('toast'); t.textContent = msg; t.hidden = false;
 
 /* ---------- Server ---------- */
 async function rpc(fn, args) {
-  for (var attempt = 0; attempt < 2; attempt++) {
-    var k = API_KEYS[keyIdx], headers = { 'Content-Type': 'application/json', apikey: k.key };
-    if (k.bearer) headers.Authorization = 'Bearer ' + k.key;
-    var res;
-    try { res = await fetch(API + fn, { method: 'POST', headers: headers, body: JSON.stringify(args), cache: 'no-store' }); }
-    catch (e) { var off = new Error('offline'); off.offline = true; throw off; }
-    if ((res.status === 401 || res.status === 403) && attempt === 0) { keyIdx = 1 - keyIdx; lsSet(K.key, String(keyIdx)); continue; }
-    var text = await res.text(), data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) {}
-    if (!res.ok) { var err = new Error((data && data.message) || ('Request failed (' + res.status + ')')); err.status = res.status; throw err; }
-    return data;
-  }
+  var res;
+  try { res = await fetch(API + fn, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: API_KEY }, body: JSON.stringify(args), cache: 'no-store' }); }
+  catch (e) { var off = new Error('offline'); off.offline = true; throw off; }
+  var text = await res.text(), data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) {}
+  if (!res.ok) { var err = new Error((data && data.message) || ('Request failed (' + res.status + ')')); err.status = res.status; throw err; }
+  return data;
 }
 function friendly(e) {
   if (e && e.offline) return 'You’re offline. Changes will sync when you’re back online.';

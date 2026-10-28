@@ -1,6 +1,6 @@
 // Road to 70.3 service worker: keeps the app working offline.
 // Bump VERSION whenever index.html or the icons change.
-const VERSION = 'r703-v1';
+const VERSION = 'r703-v2';
 const FONTS = 'r703-fonts';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png'];
 
