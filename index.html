@@ -40,6 +40,9 @@
   --good-soft: #B5D8BA;
   --miss: #B9505E;
   --on-status: #FFFFFF;
+  --bib1: #CF2338; --bib2: #2F4BB8; --bib3: #0E7A6D; --bib4: #7442AE;
+  --band-ink: #FFFFFF;
+  --shadow: rgb(20 32 41 / 0.32);
   --z1: #7F98AB; --z2: #2F8F6A; --z3: #C79A12; --z4: #D2671E; --z5: #C7283A;
   --display: "Big Shoulders Display", "Arial Narrow", "Roboto Condensed", sans-serif;
   --body: "Barlow", "Helvetica Neue", Arial, sans-serif;
@@ -52,6 +55,7 @@
     --line: #24323D; --line-strong: #3B4D5B; --track: #25323D; --accent: #FF5468; --accent-ink: #1A0508;
     --swim: #3D8FD1; --bike: #CC7A26; --run: #1FA38E; --strength: #9277D8; --hike: #D35A93; --race: #FF5468;
     --good: #5CB96D; --good-soft: #2C5434; --miss: #E07C89; --on-status: #0D141A;
+    --bib1: #C8283D; --bib2: #3C58CC; --bib3: #12877A; --bib4: #8450C2; --shadow: rgb(0 0 0 / 0.6);
     --z1: #8EA6B8; --z2: #46BF88; --z3: #E3BB3A; --z4: #F08A45; --z5: #FF5468;
     color-scheme: dark;
   }
@@ -110,42 +114,99 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 .tip b { color: var(--ink); }
 .tip .x { background: none; border: 0; font-size: 18px; line-height: 1; padding: 2px 4px; color: var(--muted); cursor: pointer; }
 
-/* Bib */
-.bib { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
-.bib::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--accent); }
-.hole { position: absolute; width: 11px; height: 11px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line-strong); }
-.hole.tl { top: 14px; left: 12px; } .hole.tr { top: 14px; right: 12px; }
-.hole.bl { bottom: 12px; left: 12px; } .hole.br { bottom: 12px; right: 12px; }
-.bib-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-inline: 10px; }
-.bib-name { font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: 0.02em; text-transform: uppercase; }
-.count { display: flex; align-items: flex-end; gap: 12px; padding-inline: 10px; flex-wrap: wrap; }
-.count-n { font-family: var(--display); font-weight: 800; font-size: clamp(84px, 26vw, 136px); line-height: 0.82; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
-.count-l { font-family: var(--display); font-weight: 700; font-size: 22px; line-height: 1.05; text-transform: uppercase; color: var(--muted); padding-bottom: 6px; }
-.legs { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px dashed var(--line-strong); border-bottom: 1px dashed var(--line-strong); }
-.leg { padding: 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.leg + .leg { border-left: 1px dashed var(--line-strong); }
-.leg b { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; }
-.leg span { font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1; font-variant-numeric: tabular-nums; }
-.leg.swim b { color: var(--swim); } .leg.bike b { color: var(--bike); } .leg.run b { color: var(--run); }
-.bib-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-inline: 10px; }
-.field { display: flex; align-items: center; gap: 8px; }
-.field label { font-size: 13px; font-weight: 600; color: var(--muted); }
-.field input { font: inherit; font-size: 15px; color: var(--ink); background: var(--sunk); border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; min-height: 38px; }
-.field input:disabled { opacity: 0.7; }
+/* Race bibs: one per teammate, swipe between them */
+.bibs-wrap { display: flex; flex-direction: column; gap: 6px; }
+.bibs {
+  position: relative; display: flex; gap: 10px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
+  padding: 4px max(16px, env(safe-area-inset-left, 0px)) 16px;
+}
+.bibs::-webkit-scrollbar { display: none; }
+.bibs::after { content: ""; flex: 0 0 1px; }
+.bibs:focus-visible { outline: none; }
+.bibs:focus-visible .bib { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bib {
+  flex: 0 0 100%; scroll-snap-align: center; scroll-snap-stop: always;
+  position: relative; overflow: hidden; isolation: isolate;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: 0 16px 32px -22px var(--shadow);
+}
+.bibs.multi .bib { flex-basis: calc(100% - 26px); }
+.bib-band {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 10px 20px; background: var(--band); color: var(--band-ink);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+}
+.bib-band .ev { font-family: var(--display); font-weight: 800; font-size: 16px; letter-spacing: 0.06em; }
+.bib-legs { display: flex; gap: 10px; font-variant-numeric: tabular-nums; }
+.bib-legs em { font-style: normal; opacity: 0.75; margin-right: 4px; font-weight: 600; }
+.hole { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line-strong); z-index: 2; }
+.hole.tl { top: 50px; left: 11px; } .hole.tr { top: 50px; right: 11px; }
+.hole.bl { bottom: 11px; left: 11px; } .hole.br { bottom: 11px; right: 11px; }
+.bib-main { padding: 16px 24px 16px; display: flex; flex-direction: column; gap: 14px; }
+.bib-id { display: flex; justify-content: space-between; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.bib-name { font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1; letter-spacing: 0.03em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bib-name small { font-family: var(--body); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--band-ink); background: var(--band); padding: 3px 6px; border-radius: 4px; }
+.bib-date {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 11px;
+  border-radius: 99px; background: var(--sunk); color: var(--muted);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-variant-numeric: tabular-nums;
+}
+.bib-date.edit { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); cursor: pointer; }
+.bib-date svg { width: 12px; height: 12px; flex: none; }
+.bib-date input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; font-size: 16px; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.bib-date:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bib-count { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.bib-count > div:first-child { min-width: 0; }
+.count-n { display: block; font-family: var(--display); font-weight: 800; font-size: clamp(100px, 31vw, 164px); line-height: 0.78; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.count-l { display: block; margin-top: 12px; font-family: var(--display); font-weight: 700; font-size: 19px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ring { position: relative; width: 96px; height: 96px; flex: none; margin-bottom: 2px; }
+.ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring .trk { fill: none; stroke: var(--track); stroke-width: 9; }
+.ring .val { fill: none; stroke: var(--band); stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset 1.1s cubic-bezier(.2, .8, .2, 1); }
+.ring-c { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ring-c b { font-size: 22px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.ring-c span { margin-top: 4px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.bib-track { position: relative; height: 18px; }
+.segs { position: absolute; left: 0; right: 0; top: 6px; height: 6px; display: flex; gap: 3px; }
+.segs span { position: relative; flex: 1 1 0; min-width: 3px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.segs span.past { background: color-mix(in srgb, var(--band) 40%, var(--track)); }
+.segs span.now i { position: absolute; inset: 0 auto 0 0; background: var(--band); }
+.pin { position: absolute; top: 1px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--band); box-shadow: 0 0 0 3px var(--surface); }
+.pin::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--band); opacity: 0; animation: pin-pulse 2.6s ease-out infinite; }
+@keyframes pin-pulse { 0% { transform: scale(0.55); opacity: 0.6; } 75%, 100% { transform: scale(1.4); opacity: 0; } }
+.bib-cap { display: flex; justify-content: space-between; gap: 2px 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: -6px; }
+.bib-cap b { color: var(--ink); font-weight: 600; }
+.bib-tear { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 14px 24px 20px; border-top: 2px dashed var(--line-strong); }
+.bib-tear::before, .bib-tear::after { content: ""; position: absolute; top: -12px; width: 22px; height: 22px; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
+.bib-tear::before { left: -12px; } .bib-tear::after { right: -12px; }
+.stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-inline: 10px; }
+.stat:first-child { padding-left: 0; }
+.stat + .stat { border-left: 1px solid var(--line); }
+.stat b { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat b small { font-size: 17px; font-weight: 700; color: var(--muted); }
+.stat span { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.bib-meta { display: flex; justify-content: space-between; align-items: center; gap: 4px 12px; flex-wrap: wrap; margin-top: -8px; padding-inline: 2px; min-height: 24px; }
+.pager { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.dots { display: flex; }
+.dots button { width: 26px; height: 26px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; }
+.dots button::before { content: ""; width: 8px; height: 8px; border-radius: 99px; background: var(--line-strong); transition: width .2s ease, background .2s ease; }
+.dots button[aria-current="true"]::before { width: 22px; background: var(--ink); }
 .status { font-size: 13px; color: var(--muted); }
 .status[data-kind="error"] { color: var(--accent); font-weight: 600; }
 .status[data-kind="warn"] { color: var(--bike); font-weight: 600; }
-.overall { display: flex; flex-direction: column; gap: 8px; padding-inline: 10px; padding-bottom: 6px; }
-.overall-line { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; }
-.overall-line strong { font-weight: 700; }
-.bar { height: 8px; background: var(--sunk); border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--ink); border-radius: 99px; transition: width .3s ease; }
-.phasebar { display: flex; gap: 3px; height: 10px; }
-.phasebar span { flex: 1 1 0; background: var(--line); border-radius: 3px; position: relative; overflow: hidden; min-width: 4px; }
-.phasebar span.past { background: var(--line-strong); }
-.phasebar span.now i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
-.phase-cap { font-size: 13px; color: var(--muted); }
-.phase-cap b { color: var(--ink); font-weight: 600; }
+@media (max-width: 420px) {
+  .bib-main { padding: 14px 20px 14px; }
+  .bib-tear { padding: 14px 20px 18px; }
+  .bib-band { padding: 9px 16px; }
+  .bib-legs { gap: 8px; font-size: 10.5px; letter-spacing: 0.06em; }
+  .bib-band .ev { font-size: 15px; }
+  .ring { width: 88px; height: 88px; }
+  .stat b { font-size: 25px; }
+}
+@media (prefers-reduced-motion: reduce) { .pin::after { animation: none; } }
 
 /* Person switcher and tabs */
 .who { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -161,7 +222,9 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 .today { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .today-head { padding: 16px 18px 14px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; border-bottom: 1px solid var(--line); }
 .today-head h2 { font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1; text-transform: uppercase; }
-.today-date { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.today-t { display: flex; flex-direction: column; gap: 4px; }
+.today-head { align-items: flex-end; }
+.today-date { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .today-date b { color: var(--ink); font-weight: 700; font-size: 15px; }
 .today-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
 .today-body .rest { font-size: 16px; color: var(--ink); }
@@ -379,14 +442,12 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   .kpi-v { font-size: 26px; }
 }
 @media (max-width: 420px) {
-  .bib { padding: 20px 14px 16px; }
   .wk-head { padding: 16px 14px 14px; }
   .day { padding: 14px; grid-template-columns: 54px 1fr; gap: 10px; }
   .move-hint, .ro-banner { padding: 8px 14px; }
   .today-head, .today-body, .today-foot { padding-left: 14px; padding-right: 14px; }
   .more-t { font-size: 18px; }
   .wk-row { padding: 11px 14px; grid-template-columns: 28px 1fr auto auto; }
-  .leg span { font-size: 21px; }
   .card { padding: 16px 14px; }
   .sp-row { grid-template-columns: 72px minmax(0, 1fr) auto; }
   .tab { font-size: 17px; }
@@ -434,37 +495,10 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
 
 <div class="wrap" id="app" hidden>
   <div class="tip" id="install-tip" hidden><span><b>Add to your Home Screen:</b> tap the Share button, then Add to Home Screen.</span><button type="button" class="x" id="install-x" aria-label="Dismiss">×</button></div>
-  <div class="who" id="who" role="group" aria-label="Whose training to show" hidden></div>
-
-  <header class="bib" aria-label="Race countdown">
-    <span class="hole tl"></span><span class="hole tr"></span><span class="hole bl"></span><span class="hole br"></span>
-    <div class="bib-top">
-      <span class="bib-name" id="bib-name">Road to 70.3</span>
-      <span class="eyebrow" id="race-label"></span>
-    </div>
-    <div class="count">
-      <span class="count-n" id="count-n">–</span>
-      <span class="count-l" id="count-l">days to<br>race day</span>
-    </div>
-    <div class="legs">
-      <div class="leg swim"><b>Swim</b><span>1.2 mi</span></div>
-      <div class="leg bike"><b>Bike</b><span>56 mi</span></div>
-      <div class="leg run"><b>Run</b><span>13.1 mi</span></div>
-    </div>
-    <div class="overall">
-      <div class="overall-line"><span><strong class="num" id="ov-done">0</strong> of <span class="num" id="ov-total">0</span> workouts done</span><span class="num" id="ov-hours"></span></div>
-      <div class="bar" aria-hidden="true"><i id="ov-bar" style="width:0%"></i></div>
-      <div class="phasebar" id="phasebar" aria-hidden="true"></div>
-      <p class="phase-cap" id="phase-cap"></p>
-    </div>
-    <div class="bib-row">
-      <div class="field">
-        <label for="race-date">Race date</label>
-        <input type="date" id="race-date">
-      </div>
-      <span class="status" id="save-status" role="status">Loading…</span>
-    </div>
-  </header>
+  <section class="bibs-wrap" aria-label="Race countdown">
+    <div class="bibs" id="bibs" tabindex="0" aria-label="Race bibs. Swipe, or use the arrow keys, to switch people."></div>
+    <div class="bib-meta"><div class="pager"><div class="dots" id="dots" hidden></div><span id="swipe-hint"></span></div><span class="status" id="save-status" role="status">Loading…</span></div>
+  </section>
 
   <section class="today" id="today" aria-label="Today’s training" hidden></section>
 
@@ -1007,55 +1041,166 @@ function phaseGroups() {
   return groups;
 }
 
-function renderWho() {
-  var el = $('who');
-  if (!T || T.members.length < 2) { el.hidden = true; return; }
-  el.hidden = false;
-  el.innerHTML = '<span class="eyebrow">Showing</span>' + T.members.map(function (m) {
-    return '<button type="button" data-who="' + m.id + '" aria-pressed="' + (m.id === VIEW) + '">' + esc(m.name) + (m.id === ME ? ' (you)' : '') + '</button>';
-  }).join('');
+function renderWho() {}
+
+/* ---------- Race bibs ---------- */
+var ICON_PEN = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 11.3V13.5h2.2l6.6-6.6-2.2-2.2-6.6 6.6zm10.4-6.1a.6.6 0 0 0 0-.85l-1.25-1.25a.6.6 0 0 0-.85 0l-1 1 2.1 2.1 1-1z" fill="currentColor"/></svg>';
+var RING_C = 2 * Math.PI * 42;
+var bibSig = '', bibCache = new Map(), bibAnimated = new Set(), bibTimer = null;
+
+function memberOrder() {
+  if (!T) return [];
+  var me = memberById(ME);
+  return (me ? [me] : []).concat(T.members.filter(function (m) { return m.id !== ME; }));
 }
 
-function renderHeader() {
-  var t = todayN(), left = plan.race - t, m = memberById(VIEW);
-  $('bib-name').textContent = m ? m.name : 'Road to 70.3';
-  $('race-label').textContent = fmtLong(plan.race);
-  if (left > 0) { $('count-n').textContent = left; $('count-l').innerHTML = (left === 1 ? 'day to' : 'days to') + '<br>race day'; }
-  else if (left === 0) { $('count-n').textContent = '0'; $('count-l').innerHTML = 'It’s<br>race day'; }
-  else { $('count-n').textContent = '✓'; $('count-l').innerHTML = 'Race<br>complete'; }
-  var inp = $('race-date');
-  inp.min = MIN_RACE; inp.max = MAX_RACE; inp.value = viewRace();
-  inp.disabled = !canEdit();
-  var cur = currentWeek(), cw = plan.weeks[cur], bar = '';
-  phaseGroups().forEach(function (g) {
-    var cls = '', fill = '';
-    if (g.last < cur) cls = 'past';
-    else if (g.first <= cur && cur <= g.last) {
-      cls = 'now';
-      var frac = (cur - g.first + (t - cw.ws + 1) / 7) / (g.last - g.first + 1);
-      fill = '<i style="width:' + Math.max(4, Math.min(100, frac * 100)).toFixed(1) + '%"></i>';
-    }
-    bar += '<span class="' + cls + '" style="flex-grow:' + (g.last - g.first + 1) + '">' + fill + '</span>';
-  });
-  $('phasebar').innerHTML = bar;
-  $('phase-cap').innerHTML = t < plan.start ? 'Plan starts <b>' + fmtShort(plan.start) + '</b>'
-    : t > plan.race ? 'Plan complete'
-    : '<b>' + cw.phase.name + '</b> phase · week ' + (cur + 1) + ' of ' + plan.N;
-  renderOverall();
-}
-
-function renderOverall() {
-  var total = 0, done = 0, mins = 0, minsDone = 0;
+// Totals for the person in VIEW (call inside withView).
+function bibStats() {
+  var t = todayN(), s = { done: 0, total: 0, mins: 0, due: 0, dueDone: 0, streak: 0 }, days = [];
   plan.weeks.forEach(function (w) {
-    var v = weekView(w);
-    total += v.count; mins += v.minutes;
-    var d = weekDone(w, v); done += d.c; minsDone += d.m;
+    weekView(w).days.forEach(function (d) {
+      var any = false;
+      d.sessions.forEach(function (x) {
+        var l = getLog(x.id), ok = !!l && l.s === 'done';
+        s.total++;
+        if (ok) { s.done++; s.mins += sessMin(x); any = true; }
+        if (d.n < t || l) { s.due++; if (ok) s.dueDone++; }
+      });
+      days.push({ has: d.sessions.length > 0, trained: any });
+    });
   });
-  $('ov-done').textContent = done;
-  $('ov-total').textContent = total;
-  $('ov-hours').textContent = fmtH(minsDone) + ' of ' + fmtHours(mins);
-  $('ov-bar').style.width = (total ? (done / total) * 100 : 0).toFixed(1) + '%';
+  // Streak: training days in a row with something done. Rest days don't break it, and today doesn't count against you until it's over.
+  var i = Math.min(t - plan.start, days.length - 1);
+  if (i >= 0 && days[i].has && !days[i].trained) i--;
+  for (; i >= 0; i--) { if (!days[i].has) continue; if (days[i].trained) s.streak++; else break; }
+  return s;
 }
+
+function bibHtml(m) {
+  var t = todayN(), left = plan.race - t, mine = m.id === ME, st = bibStats();
+  var cur = currentWeek(), cw = plan.weeks[cur];
+  var count = left > 0 ? String(left) : left === 0 ? '0' : '✓';
+  var countL = left > 1 ? 'Days to race day' : left === 1 ? 'Day to race day' : left === 0 ? 'It’s race day' : 'Race complete';
+  var pct = st.due ? st.dueDone / st.due : 0, off = (RING_C * (1 - pct)).toFixed(1);
+  var date = DOW[wd(plan.race)] + ' · ' + fmtShort(plan.race) + ', ' + new Date(plan.race * DAYMS).getUTCFullYear();
+  var dateHtml = mine
+    ? '<label class="bib-date edit"><span>' + date + '</span>' + ICON_PEN + '<input type="date" id="race-date" aria-label="Change your race date" min="' + MIN_RACE + '" max="' + MAX_RACE + '" value="' + ds(plan.race) + '"></label>'
+    : '<span class="bib-date">' + date + '</span>';
+  var segs = '';
+  phaseGroups().forEach(function (g) {
+    var gs = plan.weeks[g.first].ws, ge = plan.weeks[g.last].ws + 7, cls = '', fill = '';
+    if (t >= ge) cls = 'past';
+    else if (t >= gs) { cls = 'now'; fill = '<i style="width:' + Math.max(4, (t - gs + 0.5) / (ge - gs) * 100).toFixed(1) + '%"></i>'; }
+    segs += '<span class="' + cls + '" style="flex-grow:' + (g.last - g.first + 1) + '">' + fill + '</span>';
+  });
+  var inPlan = t >= plan.start && t <= plan.race;
+  var pos = Math.max(0, Math.min(1, (t - plan.start + 0.5) / (plan.N * 7)));
+  var weeksLeft = Math.max(0, Math.ceil(left / 7));
+  var cap = t < plan.start ? '<span>Plan starts <b>' + fmtShort(plan.start) + '</b></span>'
+    : t > plan.race ? '<span><b>Plan complete</b></span>'
+    : '<span><b>' + cw.phase.name + '</b> · week ' + (cur + 1) + ' of ' + plan.N + '</span><span>' + (weeksLeft === 1 ? '1 week to go' : weeksLeft + ' weeks to go') + '</span>';
+  return '<div class="bib-band"><span class="ev">Road to 70.3</span><span class="bib-legs"><span><em>Swim</em>1.2</span><span><em>Bike</em>56</span><span><em>Run</em>13.1 mi</span></span></div>' +
+    '<span class="hole tl"></span><span class="hole tr"></span><span class="hole bl"></span><span class="hole br"></span>' +
+    '<div class="bib-main">' +
+      '<div class="bib-id"><span class="bib-name">' + esc(m.name) + (mine ? '<small>You</small>' : '') + '</span>' + dateHtml + '</div>' +
+      '<div class="bib-count"><div><span class="count-n" data-n="' + (left > 0 ? left : '') + '">' + count + '</span><span class="count-l">' + countL + '</span></div>' +
+        '<div class="ring" role="img" aria-label="' + (st.due ? Math.round(pct * 100) + ' percent of due workouts done' : 'No workouts due yet') + '">' +
+          '<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="trk" cx="50" cy="50" r="42"/><circle class="val" cx="50" cy="50" r="42" stroke-dasharray="' + RING_C.toFixed(1) + '" data-off="' + off + '" style="stroke-dashoffset:' + off + '"/></svg>' +
+          '<div class="ring-c"><b>' + (st.due ? Math.round(pct * 100) + '%' : '–') + '</b><span>On plan</span></div></div></div>' +
+      '<div class="bib-track" aria-hidden="true"><div class="segs">' + segs + '</div>' + (inPlan ? '<span class="pin" style="left:' + (pos * 100).toFixed(1) + '%"></span>' : '') + '</div>' +
+      '<p class="bib-cap">' + cap + '</p>' +
+    '</div>' +
+    '<div class="bib-tear">' +
+      '<div class="stat"><b>' + st.done + '<small>/' + st.total + '</small></b><span>Workouts</span></div>' +
+      '<div class="stat"><b>' + fmtH(st.mins) + '</b><span>Hours</span></div>' +
+      '<div class="stat"><b>' + st.streak + '<small>' + (st.streak === 1 ? ' day' : ' days') + '</small></b><span>Streak</span></div>' +
+    '</div>';
+}
+
+function renderBibs() {
+  var box = $('bibs');
+  if (!box) return;
+  if (!T) { box.innerHTML = ''; bibSig = ''; bibCache.clear(); renderPager([]); return; }
+  var ms = memberOrder(), sig = ms.map(function (m) { return m.id; }).join(',');
+  if (sig !== bibSig) {
+    bibSig = sig; bibCache.clear();
+    box.innerHTML = ms.map(function (m, i) { return '<article class="bib" data-mid="' + m.id + '" style="--band: var(--bib' + (i % 4 + 1) + ')"></article>'; }).join('');
+    box.classList.toggle('multi', ms.length > 1);
+    requestAnimationFrame(function () { scrollBibTo(VIEW, false); });
+  }
+  ms.forEach(function (m) {
+    var card = box.querySelector('.bib[data-mid="' + m.id + '"]');
+    if (!card) return;
+    var html = withView(m.id, function () { return bibHtml(m); });
+    if (bibCache.get(m.id) === html) return;
+    var focused = card.contains(document.activeElement) ? document.activeElement.id : null;
+    bibCache.set(m.id, html);
+    card.innerHTML = html;
+    card.setAttribute('aria-label', m.name + (m.id === ME ? ' (you)' : ''));
+    if (!bibAnimated.has(m.id)) { bibAnimated.add(m.id); animateBib(card); }
+    if (focused && $(focused)) $(focused).focus({ preventScroll: true });
+  });
+  renderPager(ms);
+}
+
+function animateBib(card) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var ring = card.querySelector('.ring .val');
+  if (ring) {
+    var to = ring.dataset.off;
+    ring.style.transition = 'none';
+    ring.style.strokeDashoffset = RING_C.toFixed(1);
+    ring.getBoundingClientRect();
+    ring.style.transition = '';
+    requestAnimationFrame(function () { requestAnimationFrame(function () { ring.style.strokeDashoffset = to; }); });
+  }
+  var n = card.querySelector('.count-n'), target = n ? +n.dataset.n : 0;
+  if (!target) return;
+  var t0 = performance.now(), dur = 900;
+  n.textContent = '0';
+  (function step(now) {
+    if (!n.isConnected) return;
+    var p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+    n.textContent = String(Math.round(target * e));
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+function renderPager(ms) {
+  var dots = $('dots'), hint = $('swipe-hint');
+  if (!dots) return;
+  if (ms.length < 2) { dots.hidden = true; dots.innerHTML = ''; hint.textContent = ''; return; }
+  dots.hidden = false;
+  dots.innerHTML = ms.map(function (m) {
+    return '<button type="button" data-bib="' + m.id + '" aria-label="Show ' + esc(m.name) + (m.id === ME ? ' (you)' : '') + '" aria-current="' + (m.id === VIEW) + '"></button>';
+  }).join('');
+  var i = -1;
+  ms.forEach(function (m, k) { if (m.id === VIEW) i = k; });
+  var next = ms[i + 1];
+  hint.textContent = next ? 'Swipe to see ' + next.name : 'Swipe back to you';
+}
+
+function scrollBibTo(mid, smooth) {
+  var box = $('bibs'), card = box && box.querySelector('.bib[data-mid="' + mid + '"]');
+  if (!card) return;
+  var left = card.offsetLeft - (box.clientWidth - card.offsetWidth) / 2;
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  box.scrollTo({ left: Math.max(0, left), behavior: smooth && !reduce ? 'smooth' : 'auto' });
+}
+
+function onBibSettle() {
+  var box = $('bibs'), cards = box.querySelectorAll('.bib');
+  if (cards.length < 2) return;
+  var center = box.scrollLeft + box.clientWidth / 2, best = null, bd = Infinity;
+  for (var i = 0; i < cards.length; i++) {
+    var c = cards[i], d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - center);
+    if (d < bd) { bd = d; best = c; }
+  }
+  if (best && best.dataset.mid !== VIEW) switchView(best.dataset.mid, true);
+}
+
+function renderHeader() { renderBibs(); }
+function renderOverall() { renderBibs(); }
 
 var ICON_CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 var ICON_X = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
@@ -1162,17 +1307,17 @@ function renderToday() {
   if (!T) { el.hidden = true; return; }
   el.hidden = false;
   var t = todayN(), ed = canEdit(), vm = memberById(VIEW), x = dayAt(t);
-  var who = !ed && vm ? esc(vm.name) + '’s plan' : '';
-  var head = '<div class="today-head"><h2>Today</h2><span class="today-date"><b>' + fmtLong(t) + '</b>';
+  var who = !ed && vm ? esc(vm.name) + '’s day' : '';
+  var head = '<div class="today-head"><div class="today-t">' + (who ? '<span class="eyebrow">' + who + '</span>' : '') + '<h2>Today</h2></div><span class="today-date"><b>' + fmtLong(t) + '</b>';
   var body = '', foot = '';
   if (!x) {
-    head += (who ? '<span>' + who + '</span>' : '') + '</span></div>';
+    head += '</span></div>';
     body = '<p class="rest">' + (t < plan.start ? 'The plan starts on ' + fmtLong(plan.start) + '.' : 'Race day is behind you. Recover well.') + '</p>';
     el.innerHTML = head + '<div class="today-body">' + body + '</div>';
     return;
   }
   var d = x.d;
-  head += '<span>Week ' + (x.wi + 1) + ' · ' + x.w.phase.name + (x.w.recovery ? ' · recovery week' : '') + (who ? ' · ' + who : '') + '</span></span></div>';
+  head += '<span>Week ' + (x.wi + 1) + ' · ' + x.w.phase.name + (x.w.recovery ? ' · recovery' : '') + '</span></span></div>';
   if (d.rest) body = '<p class="rest">' + d.rest + '</p>';
   else body = (d.moved ? '<span class="moved">Moved from ' + DOW_LONG[d.src] + '</span>' : '') + (d.race ? '' : dayLogHtml(x.di)) + d.sessions.map(function (s) { return sessionHtml(s, 't'); }).join('');
   var ids = d.sessions.map(function (s) { return s.id; }).join(' ');
@@ -1648,12 +1793,15 @@ function goWeek(i, scroll) {
     $('week').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   }
 }
-function switchView(mid) {
-  if (!memberById(mid) || mid === VIEW) return;
-  VIEW = mid;
-  plan = buildPlan(viewRace());
-  sel = currentWeek(); moving = null; openAlt = null; dashWeek = null; dashDay = null;
-  renderAll();
+function switchView(mid, fromSwipe) {
+  if (!memberById(mid)) return;
+  if (mid !== VIEW) {
+    VIEW = mid;
+    plan = buildPlan(viewRace());
+    sel = currentWeek(); moving = null; openAlt = null; dashWeek = null; dashDay = null;
+    renderAll();
+  }
+  if (!fromSwipe) scrollBibTo(mid, true);
 }
 
 /* ---------- Editing ---------- */
@@ -1849,7 +1997,13 @@ document.addEventListener('click', function (e) {
     refocus('move-cancel');
   }
   else if (b.dataset.view) setView(b.dataset.view, true);
-  else if (b.dataset.who) { switchView(b.dataset.who); if (view === 'team') setView('plan', true); }
+  else if (b.dataset.bib) switchView(b.dataset.bib);
+  else if (b.dataset.who) {
+    switchView(b.dataset.who);
+    if (view === 'team') setView('plan', true);
+    var reduceW = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduceW ? 'auto' : 'smooth' });
+  }
   else if (b.id === 'prev') goWeek(sel - 1, false);
   else if (b.id === 'next') goWeek(sel + 1, false);
   else if (b.id === 'to-current') goWeek(currentWeek(), false);
@@ -1897,6 +2051,25 @@ document.addEventListener('click', function (e) {
     refocus('alt-' + pfx + '-' + sid2);
   }
   else if (b.dataset.week != null) goWeek(+b.dataset.week, true);
+});
+(function () {
+  var box = $('bibs');
+  if ('onscrollend' in window) box.addEventListener('scrollend', onBibSettle);
+  else box.addEventListener('scroll', function () { clearTimeout(bibTimer); bibTimer = setTimeout(onBibSettle, 140); }, { passive: true });
+  box.addEventListener('keydown', function (e) {
+    if (e.target !== box) return;
+    var ms = memberOrder(), i = -1;
+    ms.forEach(function (m, k) { if (m.id === VIEW) i = k; });
+    if (e.key === 'ArrowRight' && i < ms.length - 1) { switchView(ms[i + 1].id); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' && i > 0) { switchView(ms[i - 1].id); e.preventDefault(); }
+  });
+  var lastBW = 0;
+  window.addEventListener('resize', function () { if (box.clientWidth !== lastBW) { lastBW = box.clientWidth; scrollBibTo(VIEW, false); } });
+})();
+// Desktop browsers only open the date picker from its icon; open it from anywhere on the date chip.
+document.addEventListener('click', function (e) {
+  var t = e.target;
+  if (t && t.id === 'race-date' && !isIOS() && typeof t.showPicker === 'function') { try { t.showPicker(); } catch (err) {} }
 });
 $('dash').addEventListener('pointermove', function (e) { if (e.pointerType === 'mouse') dashPick(e.target); });
 $('dash').addEventListener('click', function (e) { dashPick(e.target); });
