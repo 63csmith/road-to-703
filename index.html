@@ -550,7 +550,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 7</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -2109,7 +2109,20 @@ setInterval(function () { if (document.visibilityState === 'visible' && CODE && 
     showOnboard();
     if (urlTeam.length === 8) { $('ob-code').value = fmtCode(urlTeam); joinWithCode(); }
   }
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) {
+    // When a new version takes over, reload once so it shows right away (wait if someone is typing).
+    var hadController = !!navigator.serviceWorker.controller, reloadPending = false;
+    var doReload = function () {
+      var a = document.activeElement;
+      if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) { reloadPending = true; return; }
+      location.reload();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController && !reloadPending) doReload(); });
+    document.addEventListener('focusout', function () { if (reloadPending) setTimeout(function () { if (reloadPending) { reloadPending = false; doReload(); } }, 300); });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
+    }).catch(function () {});
+  }
 })();
 </script>
 </body>

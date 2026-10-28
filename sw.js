@@ -1,11 +1,16 @@
-// Road to 70.3 service worker: keeps the app working offline.
+// Road to 70.3 service worker: keeps the app working offline and picks up new versions right away.
 // Bump VERSION whenever index.html or the icons change.
-const VERSION = 'r703-v6';
+const VERSION = 'r703-v7';
 const FONTS = 'r703-fonts';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so a fresh copy is stored.
+  event.waitUntil(
+    caches.open(VERSION)
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -23,9 +28,9 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin === self.location.origin) {
     if (req.mode === 'navigate') {
-      // Network first so updates arrive, cached copy when offline.
+      // Always check GitHub Pages for a newer page (no-cache revalidates instead of trusting a 10-minute-old copy).
       event.respondWith(
-        fetch(req)
+        fetch(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }))
           .then((res) => {
             if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put('./index.html', copy)); }
             return res;
@@ -37,7 +42,7 @@ self.addEventListener('fetch', (event) => {
     // Static files: cache first, refresh in the background.
     event.respondWith(
       caches.match(req, { ignoreSearch: true }).then((hit) => {
-        const net = fetch(req).then((res) => {
+        const net = fetch(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' })).then((res) => {
           if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
           return res;
         }).catch(() => hit);
