@@ -34,6 +34,7 @@
   --bike: #B8650A;
   --run: #0F8A78;
   --strength: #6750A0;
+  --hike: #C2407A;
   --race: #CF2338;
   --good: #2E7D3A;
   --good-soft: #B5D8BA;
@@ -49,7 +50,7 @@
   :root {
     --bg: #0D141A; --surface: #151F28; --sunk: #111A22; --ink: #E3EAF0; --muted: #8D9CA8;
     --line: #24323D; --line-strong: #3B4D5B; --track: #25323D; --accent: #FF5468; --accent-ink: #1A0508;
-    --swim: #3D8FD1; --bike: #CC7A26; --run: #1FA38E; --strength: #9277D8; --race: #FF5468;
+    --swim: #3D8FD1; --bike: #CC7A26; --run: #1FA38E; --strength: #9277D8; --hike: #D35A93; --race: #FF5468;
     --good: #5CB96D; --good-soft: #2C5434; --miss: #E07C89; --on-status: #0D141A;
     --z1: #8EA6B8; --z2: #46BF88; --z3: #E3BB3A; --z4: #F08A45; --z5: #FF5468;
     color-scheme: dark;
@@ -460,7 +461,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
       <h2>Ground rules</h2>
       <ul class="rules">
         <li>Each day, tap Trained or Didn’t train. Add time and distance from your watch if you like. Times can be minutes (45) or h:mm (1:05).</li>
-        <li>Need something different? Tap Change workout to turn any session into a swim, bike, run or strength workout, or pick a travel option like bands or a hotel-gym bike. Tap Move to swap two days in a week.</li>
+        <li>Need something different? Tap Change workout to turn any session into a swim, bike, run, strength workout or hike, or pick a travel option like bands or a hotel-gym bike. Tap Move to swap two days in a week.</li>
         <li>Missed a workout? Let it go. Don't stack it onto the next day.</li>
         <li>Sick, or pain that changes how you move? Take the day off.</li>
         <li>Recovery weeks are planned lighter on purpose. Keep them light.</li>
@@ -496,7 +497,7 @@ var DAYMS = 86400000;
 var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 var DOW_LONG = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-var SPORT = { swim: 'Swim', bike: 'Bike', run: 'Run', strength: 'Strength', race: 'Race' };
+var SPORT = { swim: 'Swim', bike: 'Bike', run: 'Run', strength: 'Strength', hike: 'Hike', race: 'Race' };
 
 function dn(s) { var a = s.split('-').map(Number); return Math.round(Date.UTC(a[0], a[1] - 1, a[2]) / DAYMS); }
 function ds(n) { return new Date(n * DAYMS).toISOString().slice(0, 10); }
@@ -646,13 +647,14 @@ var ALTS = {
       text: '3 rounds: 20 squats, 10 reverse lunges per side, 10 push-ups, 10 single-leg RDLs per side (hold a loaded backpack if you have one), 15 glute bridges, 30 s plank.' }
   ]
 };
-var SWAP_TO = ['swim', 'bike', 'run', 'strength'];
-var SWAP_CAP = { swim: 75, run: 120, strength: 45 };
+var SWAP_TO = ['swim', 'bike', 'run', 'strength', 'hike'];
+var SWAP_CAP = { swim: 75, run: 120, strength: 45, hike: 240 };
 var SWAP_TITLE = {
   swim: { easy: 'Easy swim', steady: 'Race-effort swim', hard: 'Threshold swim' },
   bike: { easy: 'Easy ride', steady: 'Race-effort ride', hard: 'Threshold ride' },
   run: { easy: 'Easy run', steady: 'Race-effort run', hard: 'Threshold run' },
-  strength: { easy: 'Kettlebell strength', steady: 'Kettlebell strength', hard: 'Kettlebell strength' }
+  strength: { easy: 'Kettlebell strength', steady: 'Kettlebell strength', hard: 'Kettlebell strength' },
+  hike: { easy: 'Easy hike', steady: 'Hilly hike', hard: 'Steep hike' }
 };
 var STR_SWAP = '3 rounds: 15 kettlebell swings, 10 goblet squats, 8 single-arm rows per side, 8 reverse lunges per side, 30 s plank.';
 var SWAP_TEXT = {
@@ -671,7 +673,12 @@ var SWAP_TEXT = {
     steady: 'Warm-up 10 min easy. Run the middle of the session at race effort (Z3), then cool down 5–10 min.',
     hard: 'Warm-up 15 min easy. Main: 4–5 × 5 min at Z4, 2 min jog between. Cool-down 10 min.'
   },
-  strength: { easy: STR_SWAP, steady: STR_SWAP, hard: STR_SWAP }
+  strength: { easy: STR_SWAP, steady: STR_SWAP, hard: STR_SWAP },
+  hike: {
+    easy: 'Easy hike at a conversational pace (Z1–Z2). Longer is fine. Carry water, a layer, and fuel for anything over 90 minutes.',
+    steady: 'Pick a route with long climbs and hike the uphills at a steady, breathing-hard-but-can-talk effort (Z2–Z3). Take the descents easy.',
+    hard: 'Find a steep trail or hill. Hike the climbs hard (Z3–Z4) and recover on the way down. Treat each climb as an interval.'
+  }
 };
 function effortOf(s) {
   var t = s.text || '';
@@ -705,7 +712,7 @@ function normOv(o) {
   if (ident && !Object.keys(subs).length) return null;
   return { order: order, subs: subs };
 }
-var UNIT = { swim: 'yd', bike: 'mi', run: 'mi' };
+var UNIT = { swim: 'yd', bike: 'mi', run: 'mi', hike: 'mi' };
 function unitFor(s) { if (s.sport === 'swim' && s.alt && s.alt.indexOf('to:') !== 0) return null; return UNIT[s.sport] || null; }
 
 function phaseFor(wo) { for (var i = 0; i < PHASES.length; i++) { if (wo <= PHASES[i].from && wo >= PHASES[i].to) return PHASES[i]; } return PHASES[0]; }
@@ -1186,18 +1193,20 @@ function renderAllWeeks() {
 }
 
 /* ---------- Dashboard ---------- */
-var SP4 = ['swim', 'bike', 'run', 'strength'];
-var STACK = ['swim', 'bike', 'run', 'strength', 'race'];
+var SP4 = ['swim', 'bike', 'run', 'strength', 'hike'];
+var STACK = ['swim', 'bike', 'run', 'strength', 'hike', 'race'];
+function sportsFor(R) { return SP4.filter(function (sp) { return sp !== 'hike' || R.hasHike; }); }
+function distSports(R) { return ['swim', 'bike', 'run'].concat(R.hasHike ? ['hike'] : []); }
 var RACE_DIST = { swim: 2112, bike: 56, run: 13.1 };
 
 function collectDash() {
   var t = todayN();
-  var R = { weeks: [], tot: { done: 0, skipped: 0, due: 0, unlogged: 0, min: 0, planDue: 0, daysDue: 0, daysTrained: 0 }, sport: {}, firstUnlogged: null, hasRace: false };
+  var R = { weeks: [], tot: { done: 0, skipped: 0, due: 0, unlogged: 0, min: 0, planDue: 0, daysDue: 0, daysTrained: 0 }, sport: {}, firstUnlogged: null, hasRace: false, hasHike: false };
   SP4.forEach(function (sp) { R.sport[sp] = { min: 0, planMin: 0, dist: 0 }; });
   plan.weeks.forEach(function (w) {
     var v = weekView(w);
     var W = { i: w.i, ws: w.ws, phase: w.phase.name, plan: v.minutes, done: 0, count: v.count, doneCount: 0,
-      by: { swim: 0, bike: 0, run: 0, strength: 0, race: 0 }, dist: { swim: 0, bike: 0, run: 0 }, days: [] };
+      by: { swim: 0, bike: 0, run: 0, strength: 0, hike: 0, race: 0 }, dist: { swim: 0, bike: 0, run: 0, hike: 0 }, days: [] };
     v.days.forEach(function (d) {
       var D = { n: d.n, type: 'rest', rest: d.rest, items: [], today: d.n === t };
       if (d.sessions.length) {
@@ -1205,6 +1214,7 @@ function collectDash() {
         d.sessions.forEach(function (s) {
           var l = getLog(s.id), st = l ? l.s : null, unit = unitFor(s), due = d.n < t || !!l;
           var it = { s: s, st: st, min: null, dist: null, unit: unit };
+          if (s.sport === 'hike') R.hasHike = true;
           if (st === 'done') {
             var m = l.min != null ? l.min : (s.dur || 0);
             it.min = m; it.logged = l.min != null; W.done += m; W.doneCount++; nd++;
@@ -1358,9 +1368,9 @@ function sportRows(R) {
   var maxV = 0;
   SP4.forEach(function (sp) { maxV = Math.max(maxV, R.sport[sp].min, R.sport[sp].planMin); });
   if (!maxV) maxV = 1;
-  return SP4.map(function (sp) {
+  return sportsFor(R).map(function (sp) {
     var o = R.sport[sp], unit = UNIT[sp], dist = '';
-    if (unit) dist = '<span class="sp-dist">' + (o.dist ? fmtDist(o.dist, unit) + ' logged · ' + (o.dist / RACE_DIST[sp]).toFixed(1) + '× the race distance' : 'No distance logged yet') + '</span>';
+    if (unit) dist = '<span class="sp-dist">' + (o.dist ? fmtDist(o.dist, unit) + ' logged' + (RACE_DIST[sp] ? ' · ' + (o.dist / RACE_DIST[sp]).toFixed(1) + '× the race distance' : '') : 'No distance logged yet') + '</span>';
     return '<div class="sp-row" style="--c: var(--' + sp + ')"><span class="sp-name"><i class="sw"></i>' + SPORT[sp] + '</span>' +
       '<div class="sp-track" aria-hidden="true"><span class="sp-plan" style="width:' + (o.planMin / maxV * 100).toFixed(1) + '%"></span><span class="sp-done" style="width:' + (o.min / maxV * 100).toFixed(1) + '%"></span></div>' +
       '<span class="sp-val">' + fmtH(o.min) + ' h <span>of ' + fmtH(o.planMin) + '</span></span>' + dist + '</div>';
@@ -1389,13 +1399,14 @@ function miniHead(R, sp) {
 }
 
 function tableHtml(R) {
-  return '<table><thead><tr><th>Week</th><th>Starts</th><th>Planned h</th><th>Done h</th><th>Workouts</th><th>Swim yd</th><th>Bike mi</th><th>Run mi</th></tr></thead><tbody>' +
+  return '<table><thead><tr><th>Week</th><th>Starts</th><th>Planned h</th><th>Done h</th><th>Workouts</th><th>Swim yd</th><th>Bike mi</th><th>Run mi</th>' + (R.hasHike ? '<th>Hike mi</th>' : '') + '</tr></thead><tbody>' +
     R.weeks.map(function (w) {
       return '<tr' + (w.i === R.cur ? ' class="cur"' : '') + '><td>' + (w.i + 1) + '</td><td>' + fmtShort(w.ws) + '</td><td>' + fmtH(w.plan) + '</td><td>' + fmtH(w.done) + '</td>' +
         '<td>' + w.doneCount + ' / ' + w.count + '</td>' +
         '<td>' + (w.dist.swim ? Math.round(w.dist.swim).toLocaleString('en-US') : '–') + '</td>' +
         '<td>' + (w.dist.bike ? w.dist.bike.toFixed(1) : '–') + '</td>' +
-        '<td>' + (w.dist.run ? w.dist.run.toFixed(1) : '–') + '</td></tr>';
+        '<td>' + (w.dist.run ? w.dist.run.toFixed(1) : '–') + '</td>' +
+        (R.hasHike ? '<td>' + (w.dist.hike ? w.dist.hike.toFixed(1) : '–') + '</td>' : '') + '</tr>';
     }).join('') + '</tbody></table>';
 }
 
@@ -1421,7 +1432,7 @@ function renderDash() {
   html += '<article class="card"><div class="card-h"><h2>Weekly hours</h2><p class="sub">What was done each week, by sport, against the plan. Tap a week for details.</p></div>' +
     '<div class="readout" id="ro-weeks"></div>' +
     '<div class="chart" id="ch-weeks" tabindex="0" role="img" aria-label="Weekly hours, done versus planned. Use the left and right arrow keys to pick a week."></div>' +
-    '<div class="legend">' + SP4.map(function (sp) { return '<span><i style="background:var(--' + sp + ')"></i>' + SPORT[sp] + '</span>'; }).join('') +
+    '<div class="legend">' + sportsFor(R).map(function (sp) { return '<span><i style="background:var(--' + sp + ')"></i>' + SPORT[sp] + '</span>'; }).join('') +
       (R.hasRace ? '<span><i style="background:var(--race)"></i>Race</span>' : '') +
       '<span><i style="background:var(--track)"></i>Planned</span><span><i class="tri"></i>This week</span></div>' +
     '<p class="note">Hours use the logged time. A workout marked done without a time counts at its planned length.</p>' +
@@ -1434,7 +1445,7 @@ function renderDash() {
       '<span><i style="background:var(--track)"></i>Planned</span><span><i class="dot"></i>Rest</span></div></article>';
   html += '<article class="card"><div class="card-h"><h2>By sport</h2><p class="sub">Hours done so far, with the planned hours to date in gray.</p></div><div class="sp">' + sportRows(R) + '</div></article>';
   html += '<article class="card"><div class="card-h"><h2>Weekly distance</h2><p class="sub">From logged distances. The highlighted week follows the hours chart.</p></div><div class="minis">' +
-    ['swim', 'bike', 'run'].map(function (sp) { return '<div class="mini-w"><div class="mini-h" id="mh-' + sp + '"></div><div class="chart" id="ch-' + sp + '"></div></div>'; }).join('') +
+    distSports(R).map(function (sp) { return '<div class="mini-w"><div class="mini-h" id="mh-' + sp + '"></div><div class="chart" id="ch-' + sp + '"></div></div>'; }).join('') +
     '</div></article>';
   el.innerHTML = html;
   drawDash(R);
@@ -1445,7 +1456,7 @@ function drawWeekSel(R) {
   var c = $('ch-weeks'); if (!c) return;
   c.innerHTML = svgWeeks(R, c.clientWidth);
   $('ro-weeks').innerHTML = roWeek(R);
-  ['swim', 'bike', 'run'].forEach(function (sp) {
+  ['swim', 'bike', 'run', 'hike'].forEach(function (sp) {
     var m = $('ch-' + sp); if (!m) return;
     m.innerHTML = svgMini(R, m.clientWidth, sp);
     $('mh-' + sp).innerHTML = miniHead(R, sp);
@@ -1481,6 +1492,7 @@ function renderTeam() {
     row('Swim', function (x) { var d = x.R.sport.swim.dist; return d ? '<b>' + fmtDist(d, 'yd') + '</b>' : '–'; }) +
     row('Bike', function (x) { var d = x.R.sport.bike.dist; return d ? '<b>' + fmtDist(d, 'mi') + '</b>' : '–'; }) +
     row('Run', function (x) { var d = x.R.sport.run.dist; return d ? '<b>' + fmtDist(d, 'mi') + '</b>' : '–'; }) +
+    (stats.some(function (x) { return x.R.hasHike; }) ? row('Hike', function (x) { var o = x.R.sport.hike; return o.min || o.dist ? '<b>' + (o.dist ? fmtDist(o.dist, 'mi') : fmtH(o.min) + ' h') + '</b>' + (o.dist && o.min ? '<small>' + fmtH(o.min) + ' h</small>' : '') : '–'; }) : '') +
     '</tbody></table></div></article>';
   html += '<article class="card"><div class="card-h"><h2>Invite your partner</h2><p class="sub">Share this team code. Anyone with it can see and edit your team’s logs, so keep it between you.</p></div>' +
     '<div class="code-box"><span class="ob-code" id="team-code">' + fmtCode(CODE) + '</span><div class="btn-row"><button type="button" class="btn" id="copy-code">Copy code</button>' +
