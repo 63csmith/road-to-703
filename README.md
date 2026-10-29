@@ -11,6 +11,7 @@ A 33-week half Ironman (70.3) training plan that installs on an iPhone Home Scre
 - **Flexibility:** swap days within a week, switch any workout to another sport, or pick a travel option (bands, rower, gym bike, bodyweight).
 - **Dashboard:** weekly hours against plan, a training calendar, time and distance by sport, and weekly distance.
 - **Team:** swipe the race bib to see each other's plans and dashboards. The Team tab compares everyone side by side, lets you change the team code, and exports your logs.
+- **Watch sync:** an iPhone Shortcut sends the last week of Apple Health workouts to the app, which fills in time and distance for the matching planned workout (same day, same sport). The setup guide is in the Team tab.
 - **Offline:** the app keeps working without a connection and syncs changes when you're back online.
 
 ## Install on iPhone
@@ -23,7 +24,7 @@ A 33-week half Ironman (70.3) training plan that installs on an iPhone Home Scre
 
 - One static page (`index.html`), with no build step and no frameworks.
 - `sw.js` caches the app for offline use, and `manifest.webmanifest` and `icons/` make it installable.
-- Data lives in a Supabase Postgres project. The tables have row-level security turned on and no direct access. The page talks only to a small set of functions (`join_team`, `get_team`, `set_log`, `set_week`, `update_member`, `rotate_team_code`), and each one checks the team code.
+- Data lives in a Supabase Postgres project. The tables have row-level security turned on and no direct access. The page talks only to a small set of functions (`join_team`, `get_team`, `set_log`, `set_week`, `update_member`, `rotate_team_code`, `get_sync_key`, `reset_sync_key`, `resolve_imports`), plus `import_workouts`, which the Shortcut calls with a personal sync key, and each one checks the team code.
 - New teams can't be created from the app. To allow it again, grant `execute` on `public.create_team` to `anon`.
 - `.github/workflows/keep-database-awake.yml` calls `ping()` every 3 days so the free project doesn't pause. GitHub turns off scheduled jobs in a repo with no commits for 60 days and emails a warning first; re-enable it from the Actions tab.
 - **Export logs** on the Team tab downloads a CSV of every logged workout. That's the backup, since free Supabase projects don't include downloadable backups.
@@ -37,6 +38,7 @@ A 33-week half Ironman (70.3) training plan that installs on an iPhone Home Scre
 | `members` | Each person's name and race date |
 | `logs` | One row per workout logged: done or skipped, plus optional minutes and distance |
 | `week_changes` | Moved days and swapped workouts, one row per edited week |
+| `imports` | Raw workouts sent by the Shortcut, waiting to be matched, used, or ignored |
 
 ### Updating
 

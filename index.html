@@ -231,6 +231,21 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 .today-foot { padding: 12px 18px; border-top: 1px solid var(--line); background: var(--sunk); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 14px; color: var(--muted); }
 .today-foot b { color: var(--ink); font-weight: 600; }
 .today-foot .linkbtn { padding: 4px 0; }
+.today-links { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.watch-pend { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.watch-pend ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.watch-pend li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.watch-pend li b { font-weight: 600; }
+.watch-pend .linkbtn { font-size: 13px; color: var(--muted); padding: 4px 0; }
+.btn.sm { min-height: 32px; padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+a.btn.primary { color: var(--surface); }
+code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.86em; background: var(--sunk); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; overflow-wrap: anywhere; }
+.howto summary { font-weight: 700; }
+.howto .steps { margin-top: 10px; gap: 10px; font-size: 14.5px; }
+.howto .sub { margin-top: 12px; }
+.kvs { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.kv { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; vertical-align: middle; margin-left: 4px; }
 
 /* Collapsible week, dashboard and team */
 .more { display: flex; flex-direction: column; gap: 14px; }
@@ -546,7 +561,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 8</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 9</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -858,6 +873,68 @@ function fmtInput(v) { return Number.isInteger(v) ? String(v) : String(Math.roun
 function fmtDist(v, unit) { return unit === 'yd' ? Math.round(v).toLocaleString('en-US') + ' yd' : (Math.round(v * 10) / 10).toFixed(1) + ' mi'; }
 function fmtH(min) { return (Math.round(min / 6) / 10).toFixed(1); }
 
+/* ---------- Watch imports (from the iPhone Shortcut) ---------- */
+var SYNC_SHORTCUT = '70.3 Sync';
+var SYNC_URL = 'https://xsfptlfebxasxqgovktu.supabase.co/rest/v1/rpc/import_workouts';
+function syncRunHref() { return 'shortcuts://run-shortcut?name=' + encodeURIComponent(SYNC_SHORTCUT); }
+// Health workout type -> planned sports it can fill. alt limits a match to a swapped session (e.g. rowing for "Row instead").
+function kindSports(kind) {
+  var k = String(kind).toLowerCase();
+  if (/multisport|transition/.test(k)) return [];
+  if (/run/.test(k)) return [{ sport: 'run' }];
+  if (/cycl|bik|spin/.test(k)) return [{ sport: 'bike' }];
+  if (/swim/.test(k)) return [{ sport: 'swim' }];
+  if (/hik/.test(k)) return [{ sport: 'hike' }];
+  if (/walk/.test(k)) return [{ sport: 'hike' }];
+  if (/strength|core|functional|cross ?train|hiit|high intensity|kettlebell|weight/.test(k)) return [{ sport: 'strength' }];
+  if (/row/.test(k)) return [{ sport: 'swim', alt: 'row' }];
+  if (/ellip/.test(k)) return [{ sport: 'bike', alt: 'gym' }];
+  return [];
+}
+function importDay(start) {
+  var s = String(start).trim(), m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return dn(m[1] + '-' + m[2] + '-' + m[3]);
+  var d = new Date(s.replace(/\s+at\s+/i, ' '));
+  if (isNaN(d)) return null;
+  return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAYMS);
+}
+function parseWorkoutDur(raw) {
+  var s = String(raw || '').trim().toLowerCase().replace(/,/g, '');
+  if (!s) return null;
+  var hms = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+  if (hms) return Math.round((hms[3] != null ? +hms[1] * 60 + +hms[2] + +hms[3] / 60 : +hms[1] * 60 + +hms[2]) * 10) / 10;
+  var total = 0, found = false, re = /([\d.]+)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)?/g, x;
+  while ((x = re.exec(s))) {
+    var v = parseFloat(x[1]); if (!isFinite(v)) continue;
+    var u = x[2] || '';
+    found = true;
+    if (/^h/.test(u)) total += v * 60;
+    else if (/^s/.test(u)) total += v / 60;
+    else if (/^m/.test(u)) total += v;
+    else total += v > 600 ? v / 60 : v;  // no unit: big numbers are seconds
+  }
+  if (!found || total <= 0 || total > 900) return null;
+  return Math.round(total * 10) / 10;
+}
+function parseWorkoutDist(raw, unit) {
+  if (!unit) return null;
+  var s = String(raw || '').trim().toLowerCase().replace(/,/g, '');
+  var x = s.match(/([\d.]+)\s*(mi|miles?|km|kilomet\w*|m|met\w*|yd|yards?|ft|feet)?/);
+  if (!x) return null;
+  var v = parseFloat(x[1]), u = x[2] || '';
+  if (!isFinite(v) || v <= 0) return null;
+  var miles;
+  if (/^mi/.test(u)) miles = v;
+  else if (/^k/.test(u)) miles = v * 0.621371;
+  else if (/^m/.test(u)) miles = v / 1609.344;
+  else if (/^y/.test(u)) miles = v / 1760;
+  else if (/^f/.test(u)) miles = v / 5280;
+  else miles = unit === 'yd' && v > 20 ? v / 1760 : v;  // no unit: miles, except a swim over 20 is yards
+  if (unit === 'yd') return Math.round(miles * 1760 / 5) * 5 || null;
+  var r = Math.round(miles * 100) / 100;
+  return r > 0 && r <= 300 ? r : null;
+}
+
 /* ---------- Storage ---------- */
 var K = { code: 'r703.code', me: 'r703.me', cache: 'r703.cache', out: 'r703.outbox', tip: 'r703.tip', view: 'r703.view', more: 'r703.more' };
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -931,7 +1008,8 @@ function friendly(e) {
 }
 
 function teamFrom(data) {
-  var t = { members: (data.members || []).map(function (m) { return { id: m.id, name: m.name, race: String(m.race_date).slice(0, 10) }; }), logs: {}, weeks: {} };
+  var t = { members: (data.members || []).map(function (m) { return { id: m.id, name: m.name, race: String(m.race_date).slice(0, 10), last: m.last_sync || null }; }), logs: {}, weeks: {} };
+  t.imports = (data.imports || []).map(function (i) { return { id: i.id, m: i.m, kind: String(i.kind || ''), start: String(i.start || ''), dur: i.dur || '', dist: i.dist || '' }; });
   t.members.forEach(function (m) { t.logs[m.id] = {}; t.weeks[m.id] = {}; });
   (data.logs || []).forEach(function (l) {
     var v = normLog({ s: l.s, min: l.min == null ? null : Number(l.min), dist: l.dist == null ? null : Number(l.dist) });
@@ -1012,12 +1090,64 @@ async function refresh() {
     if (!memberById(ME)) { ME = null; lsSet(K.me, null); showWho(); return; }
     if (!memberById(VIEW)) VIEW = ME;
     if (!Object.keys(OUT).length && !flushing) setStatus('Synced');
-    if (!hadT || structSig() !== before) renderAll(); else refreshProgress();
+    if (!hadT || structSig() !== before) renderAll(); else { refreshProgress(); renderToday(); }
+    matchImports();
   } catch (e) {
     if (e.offline) setStatus(T ? 'Offline. Showing what was last synced.' : 'You’re offline. Connect to load your team.', 'warn');
     else if (/team not found/i.test(e.message)) { resetDevice(); showOnboard('Your team’s code has changed. Ask your teammate for the new code and enter it here.'); }
     else setStatus(friendly(e), 'error');
   } finally { refreshing = false; }
+}
+
+// Match my pending watch workouts to planned sessions: same day, same sport. Never overwrites a time typed in by hand.
+var matchingImports = false, resolvedImports = new Set();
+async function matchImports() {
+  if (!T || !ME || !CODE || matchingImports) return;
+  var pend = (T.imports || []).filter(function (i) { return i.m === ME && !resolvedImports.has(i.id); });
+  if (!pend.length) return;
+  matchingImports = true;
+  var updates = [], logged = 0, t = todayN();
+  withView(ME, function () {
+    var used = new Set();
+    pend.slice().sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }).forEach(function (imp) {
+      var cands = kindSports(imp.kind), n = importDay(imp.start), x = n == null ? null : dayAt(n);
+      if (!cands.length || !x) { updates.push({ id: imp.id, state: 'ignored' }); return; }
+      var fits = function (s) { return cands.some(function (c) { return c.sport === s.sport && (!c.alt || c.alt === s.alt); }); };
+      var target = null;
+      x.d.sessions.forEach(function (s) {
+        if (target || used.has(s.id) || !fits(s)) return;
+        var l = getLog(s.id);
+        if (!l || l.s !== 'done' || l.min == null) target = s;
+      });
+      if (!target) {
+        var already = x.d.sessions.some(function (s) { var l = getLog(s.id); return fits(s) && l && l.s === 'done' && l.min != null; });
+        if (already) updates.push({ id: imp.id, state: 'used' });
+        else if (t - n > 10) updates.push({ id: imp.id, state: 'ignored' });
+        return;
+      }
+      used.add(target.id);
+      var cur = getLog(target.id), min = parseWorkoutDur(imp.dur), dist = parseWorkoutDist(imp.dist, unitFor(target));
+      queue({ t: 'log', m: ME, id: target.id, v: normLog({ s: 'done', min: min != null ? min : cur && cur.min, dist: dist != null ? dist : cur && cur.dist }) }, 30);
+      updates.push({ id: imp.id, state: 'used', session: target.id });
+      logged++;
+    });
+  });
+  if (!updates.length) { matchingImports = false; return; }
+  updates.forEach(function (u) { resolvedImports.add(u.id); });
+  T.imports = T.imports.filter(function (i) { return !resolvedImports.has(i.id); });
+  saveCache();
+  refreshProgress(); renderToday();
+  if (logged) toast(logged === 1 ? 'Logged 1 workout from your watch' : 'Logged ' + logged + ' workouts from your watch');
+  try { await rpc('resolve_imports', { p_code: CODE, p_member: ME, p_items: updates }); }
+  catch (e) { updates.forEach(function (u) { resolvedImports.delete(u.id); }); }
+  matchingImports = false;
+}
+async function dismissImport(id) {
+  resolvedImports.add(id);
+  if (T) { T.imports = (T.imports || []).filter(function (i) { return i.id !== id; }); saveCache(); }
+  renderToday();
+  try { await rpc('resolve_imports', { p_code: CODE, p_member: ME, p_items: [{ id: id, state: 'ignored' }] }); }
+  catch (e) { resolvedImports.delete(id); }
 }
 
 /* ---------- Plan rendering ---------- */
@@ -1317,9 +1447,17 @@ function renderToday() {
   var nx = nextTraining(t);
   var nextTxt = nx ? 'Next: <b>' + (nx.d.n === t + 1 ? 'Tomorrow' : DOW_LONG[nx.di]) + '</b> · ' +
     nx.d.sessions.map(function (s) { return s.title + (s.dur ? ' ' + fmtDur(s.dur) : ''); }).join(' + ') : 'Next up: race day.';
-  foot = '<div class="today-foot"><span>' + nextTxt + '</span>' +
-    (ed && d.sessions.length && !d.race ? '<button type="button" class="linkbtn" id="today-move">Move to another day</button>' : '') + '</div>';
-  el.innerHTML = head + '<div class="today-body"' + (ids ? ' data-ids="' + ids + '"' : '') + '>' + body + '</div>' + foot;
+  var meM = memberById(ME), pend = ed ? (T.imports || []).filter(function (i) { return i.m === ME; }) : [];
+  var pendHtml = pend.length ? '<div class="watch-pend"><p class="eyebrow">From your watch, not logged yet</p><ul>' +
+    pend.slice(-3).map(function (i) {
+      var n = importDay(i.start), mins = parseWorkoutDur(i.dur);
+      return '<li><span><b>' + esc(i.kind) + '</b> · ' + (n != null ? DOW[wd(n)] + ' ' + fmtShort(n) : esc(i.start)) + (mins ? ' · ' + fmtDur(mins) : '') + '</span>' +
+        '<button type="button" class="linkbtn" data-dismiss="' + i.id + '">Dismiss</button></li>';
+    }).join('') + '</ul><p class="note">No planned workout of that sport on that day. Use Change workout on that day and it will log automatically.</p></div>' : '';
+  var links = (ed && d.sessions.length && !d.race ? '<button type="button" class="linkbtn" id="today-move">Move to another day</button>' : '') +
+    (ed && meM && meM.last ? '<a class="linkbtn" href="' + syncRunHref() + '">Sync watch</a>' : '');
+  foot = '<div class="today-foot"><span>' + nextTxt + '</span>' + (links ? '<span class="today-links">' + links + '</span>' : '') + '</div>';
+  el.innerHTML = head + '<div class="today-body"' + (ids ? ' data-ids="' + ids + '"' : '') + '>' + body + '</div>' + pendHtml + foot;
   patchWeek();
 }
 
@@ -1733,6 +1871,7 @@ function renderTeam() {
       ? '<div class="confirm" role="alert"><span>The current code stops working right away. ' + othersTxt + ' will need to enter the new code once on ' + (others.length === 1 ? 'their phone' : 'each phone') + '. No logs are lost.</span><div class="btn-row"><button type="button" class="btn primary" id="rotate-confirm">Change code</button><button type="button" class="btn" id="rotate-cancel">Cancel</button></div></div>'
       : '<div class="btn-row"><button type="button" class="btn" id="rotate-code">Change team code</button></div>') +
     '</article>';
+  html += watchCardHtml();
   html += '<article class="card"><div class="card-h"><h2>Your data</h2><p class="sub">Download every workout your team has logged as a spreadsheet (CSV). The free database doesn’t keep backups you can download, so save a copy every month or so.</p></div>' +
     '<div class="btn-row"><button type="button" class="btn" id="export-csv">Export logs</button></div></article>';
   html += '<article class="card"><div class="card-h"><h2>This phone</h2><p class="sub">You’re signed in as <b>' + esc(me ? me.name : '') + '</b>.</p></div>' +
@@ -1744,6 +1883,61 @@ function renderTeam() {
   el.innerHTML = html;
 }
 function inviteUrl() { return location.origin + location.pathname + '?team=' + CODE; }
+
+var resettingKey = false;
+function syncKeyFor(mid) { return lsGet('r703.sync.' + mid); }
+function fmtWhen(iso) {
+  var d = new Date(iso);
+  if (isNaN(d)) return '';
+  var n = Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAYMS), t = todayN();
+  var time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return (n === t ? 'today' : n === t - 1 ? 'yesterday' : fmtShort(n)) + ' at ' + time;
+}
+function copyBtn(value, label) { return '<button type="button" class="btn sm" data-copy="' + esc(value) + '">' + (label || 'Copy') + '</button>'; }
+function watchCardHtml() {
+  var me = memberById(ME), key = syncKeyFor(ME);
+  var status = me && me.last ? 'Last received ' + fmtWhen(me.last) + '.' : 'Nothing received from your phone yet.';
+  var html = '<article class="card"><div class="card-h"><h2>Watch sync</h2><p class="sub">Your watch saves workouts to Apple Health. A Shortcut on your iPhone sends the last 7 days here, and each one fills in the time and distance of that day’s planned workout of the same sport. Apple only lets Shortcuts read Health while your phone is unlocked, so you run it from here, or have it run when you close the Fitness app.</p></div>' +
+    '<p class="note"><b>' + status + '</b></p>';
+  if (!key) return html + '<div class="btn-row"><button type="button" class="btn primary" id="sync-setup">Set up watch sync</button></div></article>';
+  html += '<div class="btn-row"><a class="btn primary" href="' + syncRunHref() + '">Run ' + SYNC_SHORTCUT + '</a>' + copyBtn(key, 'Copy my sync key') + '</div>' +
+    '<details class="howto"' + (me && me.last ? '' : ' open') + '><summary>How to build the Shortcut (about 5 minutes)</summary>' +
+    '<ol class="steps">' +
+      '<li>Open the <b>Shortcuts</b> app, tap <b>+</b>, and name the shortcut <b>' + SYNC_SHORTCUT + '</b> exactly.</li>' +
+      '<li>Add <b>Find Health Samples</b>. Set the type to <b>Workouts</b>, add the filter <b>Start Date is in the last 7 days</b>, sort by <b>Start Date</b>, <b>Latest First</b>, limit <b>30</b>. Allow Health access when asked.</li>' +
+      '<li>Add <b>Repeat with Each</b> and choose the Health Samples.</li>' +
+      '<li>Inside the repeat, add <b>Format Date</b>. Date: <b>Repeat Item › Start Date</b>. Date Format: <b>Custom</b>, with this format: <span class="kv"><code>yyyy-MM-dd\'T\'HH:mm</code>' + copyBtn("yyyy-MM-dd'T'HH:mm") + '</span></li>' +
+      '<li>Still inside the repeat, add <b>Text</b> and build one line with a <code>|</code> between each item: the Repeat Item’s <b>workout type</b>, the <b>Formatted Date</b>, its <b>Duration</b> (minutes), and its <b>Distance</b> (miles). It looks like <code>Type|Formatted Date|Duration|Distance</code>. Tap each item to pick it from the Repeat Item.</li>' +
+      '<li>After <b>End Repeat</b>, add <b>Combine Text</b>. Choose <b>Repeat Results</b>, separated by <b>New Lines</b>.</li>' +
+      '<li>Add <b>Get Contents of URL</b> and tap <b>Show More</b>:' +
+        '<ul class="kvs">' +
+          '<li>URL <span class="kv"><code>…/rpc/import_workouts</code>' + copyBtn(SYNC_URL) + '</span></li>' +
+          '<li>Method: <b>POST</b></li>' +
+          '<li>Header named <code>apikey</code> with this value <span class="kv">' + copyBtn(API_KEY, 'Copy value') + '</span></li>' +
+          '<li>Request Body: <b>JSON</b>. Add a Text field <code>p_key</code> with your sync key <span class="kv">' + copyBtn(key, 'Copy key') + '</span>, and a Text field <code>p_lines</code> set to <b>Combined Text</b>.</li>' +
+        '</ul></li>' +
+      '<li>Tap ▶ to run it, then come back to this app. Workouts from the last week log themselves.</li>' +
+    '</ol>' +
+    '<p class="sub"><b>Make it automatic:</b> in Shortcuts, open <b>Automation</b>, tap <b>+</b>, choose <b>App</b>, pick <b>Fitness</b>, tick <b>Is Closed</b>, choose <b>Run Immediately</b>, and select <b>' + SYNC_SHORTCUT + '</b>.</p>' +
+    '</details>';
+  html += resettingKey
+    ? '<div class="confirm" role="alert"><span>Your Shortcut stops working until you paste the new key into its <code>p_key</code> field.</span><div class="btn-row"><button type="button" class="btn primary" id="reset-key-confirm">Make a new key</button><button type="button" class="btn" id="reset-key-cancel">Cancel</button></div></div>'
+    : '<div class="btn-row"><button type="button" class="linkbtn" id="reset-sync-key">Make a new sync key</button></div>';
+  return html + '</article>';
+}
+async function loadSyncKey(btn, reset) {
+  if (btn) { btn.disabled = true; btn.textContent = reset ? 'Making…' : 'Setting up…'; }
+  try {
+    var k = await rpc(reset ? 'reset_sync_key' : 'get_sync_key', { p_code: CODE, p_member: ME });
+    lsSet('r703.sync.' + ME, k);
+    resettingKey = false;
+    renderTeam();
+    if (reset) toast('New key made. Paste it into your Shortcut.');
+  } catch (e) {
+    toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e));
+    if (btn) { btn.disabled = false; btn.textContent = reset ? 'Make a new key' : 'Set up watch sync'; }
+  }
+}
 
 async function rotateCode(btn) {
   btn.disabled = true; btn.textContent = 'Changing…';
@@ -2061,6 +2255,12 @@ document.addEventListener('click', function (e) {
   else if (b.id === 'rotate-cancel') { rotating = false; renderTeam(); }
   else if (b.id === 'rotate-confirm') rotateCode(b);
   else if (b.id === 'export-csv') exportCsv();
+  else if (b.id === 'sync-setup') loadSyncKey(b, false);
+  else if (b.id === 'reset-sync-key') { resettingKey = true; renderTeam(); refocus('reset-key-confirm'); }
+  else if (b.id === 'reset-key-cancel') { resettingKey = false; renderTeam(); }
+  else if (b.id === 'reset-key-confirm') loadSyncKey(b, true);
+  else if (b.dataset.copy != null) copyText(b.dataset.copy, 'Copied');
+  else if (b.dataset.dismiss) dismissImport(b.dataset.dismiss);
   else if (b.id === 'leave-team') { leaving = true; editingName = false; renderTeam(); }
   else if (b.id === 'leave-cancel') { leaving = false; renderTeam(); }
   else if (b.id === 'leave-confirm') { leaving = false; resetDevice(); showOnboard(); }
