@@ -299,6 +299,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 .sport { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c); }
 .s-title { font-weight: 600; font-size: 16px; }
 .s-dur { margin-left: auto; font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.src-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--good); border: 1px solid var(--good); border-radius: 4px; padding: 1px 5px; }
 .skip-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px; }
 .s-text { grid-column: 2; font-size: 14.5px; color: var(--muted); max-width: 62ch; }
 .sess.is-done .s-title, .sess.is-done .s-dur { color: var(--muted); }
@@ -443,6 +444,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
 .rem li { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 10px 14px; font-size: 14px; }
 .rem li + li { border-top: 1px solid var(--line); }
 .rem b { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: 0.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.coros-err { font-size: 14px; color: var(--miss); }
 .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--surface); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 99px; z-index: 20; }
 
 @media (max-width: 560px) {
@@ -493,6 +495,10 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
     <div class="field-col"><label for="ob-add-name">Your name</label><input class="txt" id="ob-add-name" autocomplete="given-name" maxlength="40"></div>
     <div class="field-col"><label for="ob-add-race">Race date</label><input class="txt" type="date" id="ob-add-race"></div>
     <div class="btn-row"><button type="button" class="btn primary" id="ob-add-btn">Add me to the team</button><button type="button" class="btn" id="ob-back-btn">Use a different code</button></div>
+  </section>
+  <section class="ob-card" id="ob-coros" hidden>
+    <h2 id="ob-coros-h">COROS is connected</h2>
+    <p class="sub" id="ob-coros-p"></p>
   </section>
   <p class="ob-err" id="ob-err" role="alert"></p>
 </main>
@@ -554,7 +560,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 11</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 12</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -946,8 +952,12 @@ function teamFrom(data) {
     if (v && t.logs[l.m]) t.logs[l.m][l.id] = v;
   });
   (data.weeks || []).forEach(function (w) { var o = normOv(w.data); if (o && t.weeks[w.m]) t.weeks[w.m][String(w.ws).slice(0, 10)] = o; });
+  t.coros = {};
+  if (data.coros && typeof data.coros === 'object') Object.keys(data.coros).forEach(function (k) { var c = data.coros[k]; if (c && typeof c === 'object') t.coros[k] = c; });
   return t;
 }
+function corosOf(mid) { return (T && T.coros && T.coros[mid]) || null; }
+function corosFilled(id) { var c = corosOf(VIEW); return !!c && c.state === 'on' && Array.isArray(c.ids) && c.ids.indexOf(id) >= 0; }
 function saveCache() { lsSet(K.cache, T ? JSON.stringify(T) : null); }
 function saveOut() { lsSet(K.out, JSON.stringify(OUT)); }
 
@@ -1021,6 +1031,8 @@ async function refresh() {
     if (!memberById(VIEW)) VIEW = ME;
     if (!Object.keys(OUT).length && !flushing) setStatus('Synced');
     if (!hadT || structSig() !== before) renderAll(); else refreshProgress();
+    var cm = corosOf(ME);
+    if (cm && cm.state === 'connecting' && corosPolls <= 0) corosWatch(20, 'first');
   } catch (e) {
     if (e.offline) setStatus(T ? 'Offline. Showing what was last synced.' : 'You’re offline. Connect to load your team.', 'warn');
     else if (/team not found/i.test(e.message)) { resetDevice(); showOnboard('Your team’s code has changed. Ask your teammate for the new code and enter it here.'); }
@@ -1225,7 +1237,7 @@ function sessionHtml(s, pfx) {
     : '<p class="logro" data-unit="' + (unit || '') + '" hidden></p>';
   return '<div class="sess" data-row="' + s.id + '" style="--c: var(--' + s.sport + ')">' +
     '<input type="checkbox" id="c-' + u + '" data-id="' + s.id + '"' + (ed ? '' : ' disabled') + '>' +
-    '<label class="s-lab" for="c-' + u + '"><span class="sport">' + SPORT[s.sport] + '</span><span class="s-title">' + s.title + '</span><span class="skip-tag" hidden>Skipped</span><span class="s-dur">' + dur + '</span></label>' +
+    '<label class="s-lab" for="c-' + u + '"><span class="sport">' + SPORT[s.sport] + '</span><span class="s-title">' + s.title + '</span><span class="skip-tag" hidden>Skipped</span><span class="src-tag" hidden title="Filled in from COROS">COROS</span><span class="s-dur">' + dur + '</span></label>' +
     '<p class="s-text">' + s.text + '</p>' + log + (ed ? altHtml(s, pfx) : '') + '</div>';
 }
 
@@ -1355,6 +1367,7 @@ function patchWeek() {
     row.classList.toggle('is-skipped', st === 'skipped');
     var lf = row.querySelector('.logf'); if (lf) lf.hidden = st !== 'done';
     var tag = row.querySelector('.skip-tag'); if (tag) tag.hidden = st !== 'skipped';
+    var src = row.querySelector('.src-tag'); if (src) src.hidden = !(st === 'done' && corosFilled(id));
     var ro = row.querySelector('.logro');
     if (ro) {
       var parts = [];
@@ -1732,6 +1745,7 @@ function renderTeam() {
     (stats.some(function (x) { return x.R.hasHike; }) ? row('Hike', function (x) { var o = x.R.sport.hike; return o.min || o.dist ? '<b>' + (o.dist ? fmtDist(o.dist, 'mi') : fmtH(o.min) + ' h') + '</b>' + (o.dist && o.min ? '<small>' + fmtH(o.min) + ' h</small>' : '') : '–'; }) : '') +
     '</tbody></table></div></article>';
   html += pushCardHtml();
+  html += corosCardHtml();
   var others = T.members.filter(function (m) { return m.id !== ME; }).map(function (m) { return esc(m.name); });
   var othersTxt = others.length ? others.join(' and ') : 'Anyone else on your team';
   html += '<article class="card"><div class="card-h"><h2>Team code</h2><p class="sub">Share it to invite someone. Anyone with the code can see and edit your team’s logs, so keep it between you. If it gets out, change it.</p></div>' +
@@ -1924,6 +1938,104 @@ function renderPushCard() {
   if (el) el.outerHTML = pushCardHtml();
 }
 
+/* ---------- COROS watch ---------- */
+var corosPolls = 0, corosTimer = null, corosUntil = null;
+function fmtWhen(iso) {
+  var t = new Date(iso);
+  if (isNaN(t)) return '';
+  var time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  var n = Math.round(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) / DAYMS), today = todayN();
+  return n === today ? time : n === today - 1 ? 'yesterday, ' + time : fmtShort(n) + ', ' + time;
+}
+function corosCardHtml() {
+  var c = corosOf(ME) || { state: 'off' }, st = c.state, sub, btns = '', note = '';
+  var mates = T.members.filter(function (m) { var x = corosOf(m.id); return m.id !== ME && x && x.state === 'on'; }).map(function (m) { return esc(m.name); });
+  if (st === 'on') {
+    sub = 'Workouts from your watch fill in about every 15 minutes, matched to the planned workout of the same sport that day. Anything you log yourself stays as you logged it.';
+    note = (c.ok_at ? 'Last checked ' + fmtWhen(c.ok_at) : 'Checking your watch for the first time…') +
+      (c.n ? ' · ' + c.n + ' workout' + (c.n === 1 ? '' : 's') + ' filled in so far' : '');
+    btns = '<button type="button" class="btn" id="coros-sync">Check now</button><button type="button" class="btn" id="coros-off">Disconnect</button>';
+  } else if (st === 'connecting') {
+    sub = 'Finishing the COROS sign-in. This takes a few seconds.';
+  } else {
+    sub = 'Have a COROS watch? Connect it and your workouts fill in on their own with time and distance, matched to the planned workout of the same sport that day. Anything you log yourself stays as you logged it.';
+    btns = '<button type="button" class="btn primary" id="coros-connect">Connect COROS</button>';
+  }
+  var chip = st === 'on' ? '<span class="rem-state on">Connected</span>' : st === 'connecting' ? '<span class="rem-state">Connecting…</span>' : '';
+  return '<article class="card" id="coros-card"><div class="card-h"><h2>COROS watch</h2>' + chip + '<p class="sub">' + sub + '</p></div>' +
+    (note ? '<p class="note" role="status">' + note + '</p>' : '') +
+    (c.err ? '<p class="coros-err" role="alert">' + esc(c.err) + '</p>' : '') +
+    (btns ? '<div class="btn-row">' + btns + '</div>' : '') +
+    (mates.length ? '<p class="note">Connected for ' + mates.join(' and ') + '.</p>' : '') + '</article>';
+}
+// After signing in or tapping Check now, refresh every few seconds until the result shows up.
+// until = 'first' waits for the first check after connecting; otherwise it's the last check time to wait past.
+function corosWatch(max, until) {
+  if (max != null) { corosPolls = max; corosUntil = until; }
+  clearTimeout(corosTimer);
+  if (corosPolls <= 0 || !CODE || !ME) return;
+  corosTimer = setTimeout(function () {
+    corosPolls--;
+    Promise.resolve(refresh()).then(function () {
+      var c = corosOf(ME) || {};
+      var done = corosUntil === 'first'
+        ? (c.state === 'on' && !!c.ok_at) || (!!c.err && c.state !== 'connecting')
+        : (c.sync_at || 'none') !== corosUntil;
+      if (done) corosPolls = 0;
+      corosWatch();
+    });
+  }, 3000);
+}
+async function corosConnect(btn) {
+  btn.disabled = true; btn.textContent = 'Opening COROS…';
+  try {
+    await flush();
+    var url = await rpc('coros_start', { p_code: CODE, p_member: ME, p_tz: tzName() });
+    if (typeof url !== 'string' || url.indexOf('https://') !== 0) throw new Error('Couldn’t start the COROS sign-in. Try again.');
+    location.href = url;
+  } catch (e) {
+    toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e));
+    btn.disabled = false; btn.textContent = 'Connect COROS';
+  }
+}
+async function corosSyncNow(btn) {
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    await flush();
+    await rpc('coros_sync_now', { p_code: CODE, p_member: ME });
+    var c = corosOf(ME);
+    toast('Checking COROS…');
+    corosWatch(8, (c && c.sync_at) || 'none');
+  } catch (e) {
+    toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e));
+    btn.disabled = false; btn.textContent = 'Check now';
+  }
+}
+async function corosOff(btn) {
+  btn.disabled = true; btn.textContent = 'Disconnecting…';
+  try {
+    await rpc('coros_disconnect', { p_code: CODE, p_member: ME });
+    toast('COROS disconnected. Your logs stay as they are.');
+    await refresh();
+    refocus('coros-connect');
+  } catch (e) {
+    toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e));
+    btn.disabled = false; btn.textContent = 'Disconnect';
+  }
+}
+var COROS_RETURN = {
+  ok: ['COROS is connected', 'Go back to the 70.3 app on your Home Screen. Your workouts start filling in within a minute.', 'COROS connected. Filling in your workouts…'],
+  cancel: ['COROS wasn’t connected', 'The sign-in was cancelled. Go back to the 70.3 app on your Home Screen to try again.', 'COROS sign-in was cancelled.'],
+  error: ['COROS wasn’t connected', 'The sign-in didn’t finish. Go back to the 70.3 app on your Home Screen and try again.', 'COROS sign-in didn’t finish. Try again.'],
+  expired: ['COROS wasn’t connected', 'That sign-in link expired. Go back to the 70.3 app on your Home Screen and tap Connect COROS again.', 'That COROS sign-in expired. Tap Connect COROS again.']
+};
+function showCorosNotice(kind) {
+  var m = COROS_RETURN[kind] || COROS_RETURN.error;
+  showOnboard();
+  $('ob-join').hidden = true; $('ob-new').hidden = true; $('ob-install').hidden = true;
+  $('ob-coros').hidden = false; $('ob-coros-h').textContent = m[0]; $('ob-coros-p').textContent = m[1];
+}
+
 function copyText(text, okMsg) {
   var done = function () { toast(okMsg); };
   try {
@@ -2038,7 +2150,7 @@ function obErr(msg) { $('ob-err').textContent = msg || ''; }
 function busy(btn, on, label) { btn.disabled = on; if (label) btn.textContent = label; }
 function showOnboard(msg) {
   $('app').hidden = true; $('onboard').hidden = false;
-  $('ob-join').hidden = false; $('ob-new').hidden = false; $('ob-who').hidden = true;
+  $('ob-join').hidden = false; $('ob-new').hidden = false; $('ob-who').hidden = true; $('ob-coros').hidden = true;
   $('ob-install').hidden = !(isIOS() && !isStandalone());
   obErr(msg);
 }
@@ -2199,6 +2311,9 @@ document.addEventListener('click', function (e) {
   else if (b.id === 'push-on') pushOn(b);
   else if (b.id === 'push-off') pushOff(b);
   else if (b.id === 'push-test') pushTest(b);
+  else if (b.id === 'coros-connect') corosConnect(b);
+  else if (b.id === 'coros-sync') corosSyncNow(b);
+  else if (b.id === 'coros-off') corosOff(b);
   else if (b.dataset.daylog) {
     var li = b.closest('[data-ids]'); if (!li || !canEdit()) return;
     var ids = li.dataset.ids.split(' '), st = dayState(ids), kind = b.dataset.daylog;
@@ -2275,12 +2390,23 @@ setInterval(function () { if (document.visibilityState === 'visible' && CODE && 
   try { T = JSON.parse(lsGet(K.cache) || 'null'); } catch (e) { T = null; }
   if (T && (!Array.isArray(T.members) || !T.logs || !T.weeks)) T = null;
   var urlTeam = cleanCode(new URLSearchParams(location.search).get('team'));
+  // Coming back from the COROS sign-in.
+  var corosRet = new URLSearchParams(location.search).get('coros');
+  if (corosRet) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {} }
   if (CODE && ME) {
     VIEW = ME;
     if (T && !memberById(ME)) T = null;
     startApp();
     setStatus(T ? 'Syncing…' : 'Loading your team…');
     refresh();
+    if (corosRet) {
+      var cr = COROS_RETURN[corosRet] || COROS_RETURN.error;
+      setTimeout(function () { toast(cr[2]); }, 400);
+      if (corosRet === 'ok') corosWatch(20, 'first');
+    }
+  } else if (corosRet) {
+    // Opened in a browser where the app isn't signed in (iPhone keeps Home Screen apps separate).
+    showCorosNotice(corosRet);
   } else if (CODE && !ME) {
     showOnboard();
     $('ob-code').value = fmtCode(CODE);
