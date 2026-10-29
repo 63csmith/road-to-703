@@ -1,6 +1,6 @@
 // Road to 70.3 service worker: keeps the app working offline and picks up new versions right away.
 // Bump VERSION whenever index.html or the icons change.
-const VERSION = 'r703-v10';
+const VERSION = 'r703-v11';
 const FONTS = 'r703-fonts';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png'];
 
@@ -57,4 +57,26 @@ self.addEventListener('fetch', (event) => {
       caches.open(FONTS).then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { c.put(req, res.clone()); return res; })))
     );
   }
+});
+
+// Reminders: the 5 AM workout and the 5 PM nudge. iPhone requires every push to show a notification.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'Road to 70.3', {
+    body: d.body || '',
+    tag: d.tag || 'r703',
+    icon: 'icons/icon-192.png',
+    data: { url: d.url || './' }
+  }));
+});
+
+// Tapping a reminder opens the app, or brings it forward if it's already open.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) { if (c.url.startsWith(self.registration.scope) && 'focus' in c) return c.focus(); }
+    return self.clients.openWindow(target);
+  }));
 });

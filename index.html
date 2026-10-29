@@ -435,6 +435,14 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
 .code-box .ob-code { font-size: 30px; user-select: all; -webkit-user-select: all; }
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
 .confirm { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; font-size: 14px; }
+.rem-state { display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; margin: 2px 0; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.rem-state::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.rem-state.on { color: var(--good); }
+.rem-state.on::before { background: var(--good); }
+.rem { margin: 0; padding: 0; list-style: none; background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; }
+.rem li { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 10px 14px; font-size: 14px; }
+.rem li + li { border-top: 1px solid var(--line); }
+.rem b { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: 0.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--surface); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 99px; z-index: 20; }
 
 @media (max-width: 560px) {
@@ -546,7 +554,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 10</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 11</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -859,7 +867,7 @@ function fmtDist(v, unit) { return unit === 'yd' ? Math.round(v).toLocaleString(
 function fmtH(min) { return (Math.round(min / 6) / 10).toFixed(1); }
 
 /* ---------- Storage ---------- */
-var K = { code: 'r703.code', me: 'r703.me', cache: 'r703.cache', out: 'r703.outbox', tip: 'r703.tip', view: 'r703.view', more: 'r703.more' };
+var K = { code: 'r703.code', me: 'r703.me', cache: 'r703.cache', out: 'r703.outbox', tip: 'r703.tip', view: 'r703.view', more: 'r703.more', push: 'r703.push' };
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
 
@@ -1723,6 +1731,7 @@ function renderTeam() {
     row('Run', function (x) { var d = x.R.sport.run.dist; return d ? '<b>' + fmtDist(d, 'mi') + '</b>' : '–'; }) +
     (stats.some(function (x) { return x.R.hasHike; }) ? row('Hike', function (x) { var o = x.R.sport.hike; return o.min || o.dist ? '<b>' + (o.dist ? fmtDist(o.dist, 'mi') : fmtH(o.min) + ' h') + '</b>' + (o.dist && o.min ? '<small>' + fmtH(o.min) + ' h</small>' : '') : '–'; }) : '') +
     '</tbody></table></div></article>';
+  html += pushCardHtml();
   var others = T.members.filter(function (m) { return m.id !== ME; }).map(function (m) { return esc(m.name); });
   var othersTxt = others.length ? others.join(' and ') : 'Anyone else on your team';
   html += '<article class="card"><div class="card-h"><h2>Team code</h2><p class="sub">Share it to invite someone. Anyone with the code can see and edit your team’s logs, so keep it between you. If it gets out, change it.</p></div>' +
@@ -1742,6 +1751,7 @@ function renderTeam() {
     (leaving ? '<div class="confirm" role="alert"><span>This removes the team from this phone only. Your logs stay saved, and you can rejoin with the code ' + fmtCode(CODE) + '.</span><div class="btn-row"><button type="button" class="btn primary" id="leave-confirm">Leave team</button><button type="button" class="btn" id="leave-cancel">Cancel</button></div></div>' : '') +
     '</article>';
   el.innerHTML = html;
+  checkPush();
 }
 function inviteUrl() { return location.origin + location.pathname + '?team=' + CODE; }
 
@@ -1793,6 +1803,127 @@ function exportCsv() {
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   toast('Saved ' + (rows.length - 1) + ' workouts');
 }
+
+/* ---------- Reminders (web push) ---------- */
+// Public half of the key the reminder sender signs with. Safe to publish.
+var VAPID_PUBLIC = 'BIw0tBv-9I2_z2bXWu-kilpmXrVZrkzxvjILiyVcqoMQ7XyMUxjLs9DMhY5dgZG7gzeYGz22IImsdnP52RuPnXE';
+var PUSH = null; // null while checking, then 'on', 'off', 'denied', 'install' or 'unsupported'
+function pushSupported() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function tzName() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver'; } catch (e) { return 'America/Denver'; } }
+function keyBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+  var bin = atob(s), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function swReady() {
+  return Promise.race([navigator.serviceWorker.ready, new Promise(function (_, rej) {
+    setTimeout(function () { rej(new Error('The app is still setting up. Try again in a moment.')); }, 8000);
+  })]);
+}
+async function currentSub() {
+  if (!pushSupported()) return null;
+  var reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+async function checkPush() {
+  var st;
+  if (!pushSupported()) st = isIOS() && !isStandalone() ? 'install' : 'unsupported';
+  else if (Notification.permission === 'denied') st = 'denied';
+  else { try { st = Notification.permission === 'granted' && await currentSub() ? 'on' : 'off'; } catch (e) { st = 'off'; } }
+  if (st !== PUSH) { PUSH = st; renderPushCard(); }
+}
+function pushKey(endpoint) { return [endpoint, ME, tzName(), ds(todayN())].join('|'); }
+// Tell the server about this phone's subscription once a day, or when the person or time zone changes.
+async function pushSync(force) {
+  if (!pushSupported() || Notification.permission !== 'granted' || !CODE || !ME) return;
+  try {
+    var sub = await currentSub();
+    if (!sub) return;
+    var j = sub.toJSON(), key = pushKey(j.endpoint);
+    if (!force && lsGet(K.push) === key) return;
+    await rpc('save_push', { p_code: CODE, p_member: ME, p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_tz: tzName() });
+    lsSet(K.push, key);
+  } catch (e) { if (force) throw e; }
+}
+function pushOn(btn) {
+  if (!pushSupported() || !CODE || !ME) return;
+  btn.disabled = true; btn.textContent = 'Turning on…';
+  // iPhone only asks for permission when the request comes straight from a tap, so ask before anything else.
+  var ask = Notification.permission === 'granted' ? Promise.resolve('granted') : Notification.requestPermission();
+  Promise.resolve(ask).then(async function (p) {
+    if (p !== 'granted') {
+      PUSH = p === 'denied' ? 'denied' : 'off'; renderPushCard();
+      if (p !== 'denied') toast('Notifications weren’t allowed.');
+      return;
+    }
+    var reg = await swReady(), sub = await reg.pushManager.getSubscription(), fresh = false;
+    if (!sub) { sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC) }); fresh = true; }
+    try { await pushSync(true); }
+    catch (e) { if (fresh) await sub.unsubscribe().catch(function () {}); throw e; }
+    PUSH = 'on'; renderPushCard(); refocus('push-test');
+    rpc('test_push', { p_code: CODE, p_member: ME }).catch(function () {});
+    toast('Reminders are on. A test is on its way.');
+  }).catch(function (e) {
+    toast(e && e.offline ? 'You’re offline. Connect and try again.' : 'Couldn’t turn on reminders. ' + friendly(e));
+    PUSH = null; checkPush();
+  });
+}
+async function pushOff(btn) {
+  btn.disabled = true; btn.textContent = 'Turning off…';
+  try {
+    var sub = await currentSub();
+    if (sub) { await rpc('turn_off_push', { p_code: CODE, p_member: ME, p_endpoint: sub.endpoint }); await sub.unsubscribe().catch(function () {}); }
+    lsSet(K.push, null);
+    PUSH = 'off'; renderPushCard(); refocus('push-on');
+    toast('Reminders are off on this phone.');
+  } catch (e) {
+    toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e));
+    btn.disabled = false; btn.textContent = 'Turn off';
+  }
+}
+async function pushTest(btn) {
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    await pushSync(true);
+    await rpc('test_push', { p_code: CODE, p_member: ME });
+    toast('Sent. It should arrive in a few seconds.');
+  } catch (e) { toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e)); }
+  btn.disabled = false; btn.textContent = 'Send a test';
+}
+// Leaving the team on this phone stops its reminders too.
+function pushRelease() {
+  var code = CODE, me = ME;
+  currentSub().then(function (sub) {
+    if (!sub) return;
+    rpc('turn_off_push', { p_code: code, p_member: me, p_endpoint: sub.endpoint }).catch(function () {});
+    sub.unsubscribe().catch(function () {});
+  }).catch(function () {});
+  lsSet(K.push, null);
+}
+function pushCardHtml() {
+  var on = PUSH === 'on', sub, btns = '';
+  if (PUSH === 'on') {
+    sub = 'On for this phone. Times follow the phone’s time zone, so they still come at 5 AM when you travel.';
+    btns = '<button type="button" class="btn" id="push-test">Send a test</button><button type="button" class="btn" id="push-off">Turn off</button>';
+  } else if (PUSH === 'off') {
+    sub = 'Get a heads-up on this phone. Times follow the phone’s time zone.';
+    btns = '<button type="button" class="btn primary" id="push-on">Turn on reminders</button>';
+  } else if (PUSH === 'denied') sub = 'Notifications are blocked for this app. Open the Settings app, tap Notifications, then 70.3, and turn on Allow Notifications. Then come back here.';
+  else if (PUSH === 'install') sub = 'Reminders work in the Home Screen app. In Safari, tap Share, then Add to Home Screen, and open 70.3 from there.';
+  else if (PUSH === 'unsupported') sub = isIOS() ? 'Reminders need iOS 16.4 or later. Update your iPhone in Settings, then come back here.' : 'This browser can’t show reminders. Use the app on your iPhone instead.';
+  else sub = 'Checking this phone…';
+  return '<article class="card" id="push-card"><div class="card-h"><h2>Reminders</h2>' +
+    (PUSH === 'on' || PUSH === 'off' ? '<span class="rem-state' + (on ? ' on' : '') + '">' + (on ? 'On' : 'Off') + '</span>' : '') +
+    '<p class="sub">' + sub + '</p></div>' +
+    '<ul class="rem"><li><b>5:00 AM</b><span>Today’s workout</span></li><li><b>5:00 PM</b><span>A nudge on training days when nothing’s logged yet</span></li></ul>' +
+    (btns ? '<div class="btn-row">' + btns + '</div>' : '') + '</article>';
+}
+function renderPushCard() {
+  var el = $('push-card');
+  if (el) el.outerHTML = pushCardHtml();
+}
+
 function copyText(text, okMsg) {
   var done = function () { toast(okMsg); };
   try {
@@ -1940,10 +2071,11 @@ function startApp() {
   setMore(moreOpen, false);
   setView(view, false);
   renderAll();
+  pushSync(false);
 }
 function resetDevice() {
   CODE = ME = VIEW = null; T = null; OUT = {}; pendingTeam = null;
-  [K.code, K.me, K.cache, K.out].forEach(function (k) { lsSet(k, null); });
+  [K.code, K.me, K.cache, K.out, K.push].forEach(function (k) { lsSet(k, null); });
 }
 async function joinWithCode() {
   var btn = $('ob-join-btn'), code = cleanCode($('ob-code').value);
@@ -2063,7 +2195,10 @@ document.addEventListener('click', function (e) {
   else if (b.id === 'export-csv') exportCsv();
   else if (b.id === 'leave-team') { leaving = true; editingName = false; renderTeam(); }
   else if (b.id === 'leave-cancel') { leaving = false; renderTeam(); }
-  else if (b.id === 'leave-confirm') { leaving = false; resetDevice(); showOnboard(); }
+  else if (b.id === 'leave-confirm') { leaving = false; pushRelease(); resetDevice(); showOnboard(); }
+  else if (b.id === 'push-on') pushOn(b);
+  else if (b.id === 'push-off') pushOff(b);
+  else if (b.id === 'push-test') pushTest(b);
   else if (b.dataset.daylog) {
     var li = b.closest('[data-ids]'); if (!li || !canEdit()) return;
     var ids = li.dataset.ids.split(' '), st = dayState(ids), kind = b.dataset.daylog;
@@ -2110,7 +2245,13 @@ document.addEventListener('click', function (e) {
 $('dash').addEventListener('pointermove', function (e) { if (e.pointerType === 'mouse') dashPick(e.target); });
 $('dash').addEventListener('click', function (e) { dashPick(e.target); });
 window.addEventListener('hashchange', function () { if (!$('app').hidden) setView(location.hash.slice(1), false); });
-document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && CODE && ME) { if (T) { renderHeader(); renderToday(); updateMoreSum(); } refresh(); } });
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && CODE && ME) {
+    if (T) { renderHeader(); renderToday(); updateMoreSum(); }
+    refresh(); pushSync(false);
+    if (view === 'team') checkPush();
+  }
+});
 window.addEventListener('online', function () { if (CODE && ME) { flush(); refresh(); } });
 setInterval(function () { if (document.visibilityState === 'visible' && CODE && ME) refresh(); }, 60000);
 (function () {
