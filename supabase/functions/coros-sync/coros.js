@@ -159,7 +159,9 @@ export function dayFor(member, n) {
   const caps = {};
   w.days.forEach((d) => d.sessions.forEach((s) => { if (s.dur) caps[s.sport] = Math.max(caps[s.sport] || 0, s.dur); }));
   const o = w.days[(ov ? ov.order : IDENT)[n - w.ws]];
-  return { rest: o.rest, race: !!o.race, sessions: o.sessions.map((s) => eff(s, ov, caps)) };
+  // Workouts removed from the plan ('off' or 'off|<switch>') are left out.
+  const kept = o.sessions.filter((s) => !(ov && /^off(\||$)/.test(ov.subs[s.id] || '')));
+  return { rest: o.rest, race: !!o.race, sessions: kept.map((s) => eff(s, ov, caps)) };
 }
 function distFor(km, unit) {
   if (!km || !unit) return null;
@@ -170,40 +172,56 @@ function distFor(km, unit) {
 const kindOf = (sp) => (sp === 'strength' ? 'strength' : 'endurance');
 const weekOf = (date) => { const n = dn(date); return ds(n - wd(n)); };
 
-// COROS is the source of truth. Each watch workout in the checked window (from..today) lands somewhere:
-//   1. the planned workout of the same sport that day (after her moved days and switched workouts), or
+// COROS always syncs in, and anything changed in the app wins.
+// Each watch workout in the checked window (from..today) lands somewhere:
+//   1. the planned workout of the same sport that day (after moved days, switched and removed workouts), or
 //   2. an open planned workout of the same kind that day, switched to the watch's sport (open = not already
-//      matched, not one she switched herself, and not marked done by hand), or
+//      matched, nothing logged by hand, not switched by her, and not a switch she undid), or
 //   3. an extra workout on that day (id YYYY-MM-DD_x<sport>), e.g. a run on a rest day.
+// COROS writes a workout the first time it lands, then keeps it updated only while the entry still shows exactly
+// what COROS wrote. Once someone edits or deletes it in the app, COROS leaves it alone.
 // The window is worked out from scratch every time, including earlier automatic switches, so the result
 // settles on the right answer as the day's workouts come in. Casual walks only count toward a planned hike.
 // Returns:
-//   fills      - sessions to set to Trained with COROS's time and distance (overwrites what's logged)
+//   fills      - sessions to set to Trained with COROS's time and distance
+//   unfill     - sessions COROS no longer tracks
 //   seen       - which COROS workout backs which session
 //   gone       - COROS workouts that were deleted or no longer land anywhere
-//   clears     - sessions that were backed by COROS and no longer are, so their log is removed
+//   clears     - untouched COROS entries whose workout is gone, so their log is removed
 //   weekWrites - week changes to save (her own changes plus the automatic switches)
-//   auto       - the automatic switches now in force: { sessionId: { v: 'to:bike', day } }
+//   auto       - automatic switches: { sessionId: { v: 'to:bike', day } }, and { no: true } for ones she undid
 // If COROS returned no workouts at all, nothing changes.
+const near = (a, b) => (a == null || b == null ? a == null && b == null : Math.abs(Number(a) - Number(b)) < 1e-6);
 export function planSync(member, acts, tz, today, from) {
-  const none = { fills: [], seen: [], gone: [], clears: [], weekWrites: [], auto: null };
+  const none = { fills: [], unfill: [], seen: [], gone: [], clears: [], weekWrites: [], auto: null };
   if (!acts.length) return none;
   const inWin = (d) => !!d && d >= from && d <= today;
-  const auto = {};
-  for (const [sid, a] of Object.entries(member.auto || {})) if (a && typeof a.v === 'string' && a.day) auto[sid] = a;
-  // Her own week changes, without our automatic switches (unless she has changed them since).
-  const current = {}, userWeeks = {};
-  for (const [ws, raw] of Object.entries(member.weeks || {})) {
-    const ov = normOv(raw); if (!ov) continue;
-    const key = String(ws).slice(0, 10), subs = { ...ov.subs };
-    current[key] = ov;
-    for (const [sid, a] of Object.entries(auto)) if (subs[sid] === a.v) delete subs[sid];
-    userWeeks[key] = { order: ov.order, subs };
+  const current = {};
+  for (const [ws, raw] of Object.entries(member.weeks || {})) { const ov = normOv(raw); if (ov) current[String(ws).slice(0, 10)] = ov; }
+  // Earlier automatic switches. One she changed, undid or removed is hers now and is never switched again.
+  const auto = {}, declined = {};
+  for (const [sid, a] of Object.entries(member.auto || {})) {
+    if (!a || typeof a.v !== 'string' || !a.day) continue;
+    const cur = current[weekOf(sid.slice(0, 10))];
+    if (a.no || !cur || cur.subs[sid] !== a.v) declined[sid] = { v: a.v, day: a.day, no: true };
+    else auto[sid] = a;
   }
-  // Automatic switches on days before the window stay as they are (if still in place).
+  // Her own week changes, without our automatic switches.
+  const userWeeks = {};
+  for (const [ws, ov] of Object.entries(current)) {
+    const subs = { ...ov.subs };
+    for (const [sid, a] of Object.entries(auto)) if (subs[sid] === a.v) delete subs[sid];
+    userWeeks[ws] = { order: ov.order, subs };
+  }
+  const logs = member.logs || {}, filled = member.filled || {};
+  // An entry COROS wrote that nobody has changed since.
+  const untouched = (sid) => { const l = logs[sid], f = filled[sid]; return !!(l && f && l.s === 'done' && near(l.min, f.min) && near(l.dist, f.dist)); };
+  // An entry COROS wrote that was then changed or deleted in the app.
+  const overridden = (sid) => !!filled[sid] && !untouched(sid);
+  // Automatic switches stay as they are on days before the window, and wherever someone has changed the entry.
   const keep = {};
   for (const [sid, a] of Object.entries(auto)) {
-    if (inWin(a.day)) continue;
+    if (inWin(a.day) && !overridden(sid) && !(logs[sid] && !untouched(sid))) continue;
     const cur = current[weekOf(sid.slice(0, 10))];
     if (cur && cur.subs[sid] === a.v) keep[sid] = a;
   }
@@ -214,7 +232,6 @@ export function planSync(member, acts, tz, today, from) {
     (baseWeeks[ws] = baseWeeks[ws] || { order: IDENT.slice(), subs: {} }).subs[sid] = a.v;
   }
   const base = { ...member, weeks: baseWeeks };
-  const logs = member.logs || {}, backed = new Set((member.seen || []).map((r) => r.session));
 
   const list = [];
   for (const a of acts) {
@@ -233,10 +250,15 @@ export function planSync(member, acts, tz, today, from) {
     groups.get(id).list.push(it.a);
     matched.set(it.a.id, { session: id, day: it.date });
   };
-  // 1. Same sport as planned.
+  // A COROS workout whose entry was changed in the app stays attached to that entry (and isn't filled again).
+  const pinned = new Map();
+  for (const r of member.seen || []) if (r.session && overridden(r.session)) pinned.set(r.label, r.session);
+  // 1. Same sport as planned (not an entry someone has taken over).
   const left = [];
   for (const it of list) {
-    const day = dayOf(it.date), ss = day && !day.race ? day.sessions : [];
+    const pin = pinned.get(it.a.id);
+    if (pin) { put(pin, null, it); continue; }
+    const day = dayOf(it.date), ss = (day && !day.race ? day.sessions : []).filter((x) => !overridden(x.id));
     const s = ss.find((x) => x.sport === it.sp) || (it.sp === 'walk' ? ss.find((x) => x.sport === 'hike') : null);
     if (s) put(s.id, unitFor(s), it); else left.push(it);
   }
@@ -249,7 +271,8 @@ export function planSync(member, acts, tz, today, from) {
     const key = it.date + '|' + it.sp;
     let id = placed.get(key);
     if (!id) {
-      const open = (day ? day.sessions : []).filter((x) => x.sport !== 'race' && !x.alt && !groups.has(x.id) && !(logs[x.id] === 'done' && !backed.has(x.id)));
+      const open = (day ? day.sessions : []).filter((x) => x.sport !== 'race' && !x.alt && !groups.has(x.id) && !declined[x.id] &&
+        (!logs[x.id] || untouched(x.id)));
       // Only the same kind of workout (endurance for endurance, strength for strength): strength is often not on the watch,
       // so a ride shouldn't take over the strength slot she may still do later.
       const s = open.find((x) => kindOf(x.sport) === kindOf(it.sp));
@@ -262,32 +285,37 @@ export function planSync(member, acts, tz, today, from) {
 
   const fills = [];
   for (const [id, g] of groups) {
+    // Already written by COROS and changed or deleted in the app since: theirs now, leave it alone.
+    if (overridden(id)) continue;
     // A walk only counts toward a hike when there's no real hike that day.
     const real = g.list.filter((a) => sportOf(a.sportType) !== 'walk'), use = real.length ? real : g.list;
     const secs = use.reduce((t, a) => t + (a.secs || 0), 0), km = use.reduce((t, a) => t + (a.km || 0), 0);
     fills.push({ session: id, min: secs ? Math.min(1440, Math.max(1, Math.round(secs / 60))) : null, dist: distFor(km, g.unit) });
   }
   const seen = [...matched].map(([label, v]) => ({ label, session: v.session, day: v.day }));
-  const gone = [], clears = new Set();
+  const gone = [], clears = new Set(), unfill = new Set();
   for (const r of member.seen || []) {
     const d = r.day ? String(r.day).slice(0, 10) : null;
     if (!inWin(d)) continue;
     const now = matched.get(r.label);
     if (now && now.session === r.session) continue;
     if (!now) gone.push(r.label);
-    if (r.session && !groups.has(r.session)) clears.add(r.session);
+    if (r.session && !groups.has(r.session)) {
+      if (untouched(r.session)) clears.add(r.session);   // only entries nobody changed come off
+      if (filled[r.session]) unfill.add(r.session);
+    }
   }
   // Week changes to save: her own changes plus the automatic switches.
-  const autoOut = { ...keep, ...newAuto }, touched = new Set();
+  const autoOut = { ...declined, ...keep, ...newAuto }, touched = new Set();
   for (const sid of [...Object.keys(auto), ...Object.keys(newAuto)]) touched.add(weekOf(sid.slice(0, 10)));
   const weekWrites = [];
   for (const ws of touched) {
     const u = userWeeks[ws] || { order: IDENT.slice(), subs: {} }, subs = { ...u.subs };
-    for (const [sid, a] of Object.entries(autoOut)) if (weekOf(sid.slice(0, 10)) === ws) subs[sid] = a.v;
+    for (const [sid, a] of Object.entries(autoOut)) if (!a.no && weekOf(sid.slice(0, 10)) === ws) subs[sid] = a.v;
     const next = normOv({ order: u.order, subs });
     if (JSON.stringify(next) !== JSON.stringify(current[ws] || null)) weekWrites.push({ week: ws, data: next });
   }
-  return { fills, seen, gone, clears: [...clears], weekWrites, auto: autoOut };
+  return { fills, unfill: [...unfill], seen, gone, clears: [...clears], weekWrites, auto: autoOut };
 }
 
 /* ---------- One person's sync ---------- */
@@ -317,7 +345,7 @@ export async function syncLink(cfg, link, member, now, f = fetch) {
     item.raw = String(text).slice(0, 4000);
     const acts = parseRecords(text);
     const m = planSync(member, acts, link.tz, today, from);
-    item.fills = m.fills; item.seen = m.seen; item.gone = m.gone; item.clears = m.clears; item.weekWrites = m.weekWrites;
+    item.fills = m.fills; item.unfill = m.unfill; item.seen = m.seen; item.gone = m.gone; item.clears = m.clears; item.weekWrites = m.weekWrites;
     if (m.auto) item.auto = m.auto;
     item.ok = true; item.count = acts.length;
   } catch (e) {

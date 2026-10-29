@@ -3,7 +3,7 @@
 //  GET  .../coros-sync/callback  COROS sends the person back here after they sign in. Hands the code to the database.
 //  POST {finish: state}          From the database (with the shared secret): trade the code for tokens, then sync.
 //  POST {sync: member} or {}     From the timer or "Check now" (with the shared secret): sync recent workouts.
-//                                COROS is the source of truth for every planned workout it has a match for.
+//                                COROS always syncs in, and anything changed in the app wins.
 import { exchangeCode, syncLink, CorosError } from './coros.js';
 
 const API = (Deno.env.get('SUPABASE_URL') || 'https://xsfptlfebxasxqgovktu.supabase.co') + '/rest/v1/rpc/';
@@ -63,7 +63,8 @@ Deno.serve(async (req) => {
     const code = ((due.members || {})[it.member] || {}).team_code;
     if (!code) continue;
     for (const w of it.weekWrites || []) {
-      await rpc('set_week', { p_code: code, p_member: it.member, p_week: w.week, p_data: w.data }).catch(() => {});
+      // If a week change didn't save, keep the old record of automatic switches so nothing looks undone by her.
+      await rpc('set_week', { p_code: code, p_member: it.member, p_week: w.week, p_data: w.data }).catch(() => { delete it.auto; });
     }
     for (const session of it.clears || []) {
       await rpc('set_log', { p_code: code, p_member: it.member, p_session: session, p_status: null }).catch(() => {});

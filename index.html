@@ -299,7 +299,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .chart:focus-v
 .sport { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c); }
 .s-title { font-weight: 600; font-size: 16px; }
 .s-dur { margin-left: auto; font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.sess.is-coros .lf input { background: var(--sunk); border-style: dashed; color: var(--ink); }
+.removed { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13.5px; color: var(--muted); padding: 6px 0 2px; }
+.removed s { text-decoration-thickness: 1px; }
 .src-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--good); border: 1px solid var(--good); border-radius: 4px; padding: 1px 5px; }
 .skip-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px; }
 .s-text { grid-column: 2; font-size: 14.5px; color: var(--muted); max-width: 62ch; }
@@ -561,7 +562,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 14</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 15</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -908,13 +909,40 @@ function weekView(w) {
   var ov = getOv(w), order = ov ? ov.order : IDENT, minutes = 0, count = 0, caps = {};
   w.days.forEach(function (d) { d.sessions.forEach(function (s) { if (s.dur) caps[s.sport] = Math.max(caps[s.sport] || 0, s.dur); }); });
   var days = order.map(function (src, d) {
-    var o = w.days[src];
-    var sessions = o.sessions.map(function (s) { return eff(s, ov, caps); });
+    var o = w.days[src], removed = [];
+    // Workouts removed from the plan ('off') drop out of the day and its totals, and can be restored.
+    var sessions = o.sessions.filter(function (s) {
+      var v = ov && ov.subs[s.id];
+      if (!isOff(v)) return true;
+      var was = {}; if (v.indexOf('off|') === 0) was[s.id] = v.slice(4);
+      removed.push(eff(s, { order: ov.order, subs: was }, caps));
+      return false;
+    })
+      .map(function (s) { return eff(s, ov, caps); });
     sessions.forEach(function (s) { if (s.dur) minutes += s.dur; count++; });
     // Extra workouts from a COROS watch (not in the plan) sit on their calendar day.
-    return { n: w.ws + d, rest: o.rest, sessions: sessions.concat(extrasFor(w.ws + d)), race: !!o.race, moved: src !== d, src: src };
+    return { n: w.ws + d, rest: o.rest, sessions: sessions.concat(extrasFor(w.ws + d)), removed: removed, planned: sessions.length,
+      race: !!o.race, moved: src !== d, src: src };
   });
   return { days: days, minutes: minutes, count: count, ov: ov };
+}
+function isExtraId(id) { return /_x[a-z]+$/.test(id); }
+// A removed workout is stored as 'off', or 'off|<its switch>' so Restore brings the switch back too.
+function isOff(v) { return typeof v === 'string' && (v === 'off' || v.indexOf('off|') === 0); }
+// The top of a day: rest text, or the Trained / Didn't train buttons. Days whose planned workouts were all removed read like rest days.
+function dayHead(d, i) {
+  if (d.rest) return '<p class="rest">' + d.rest + '</p>';
+  if (d.race) return '';
+  if (!d.planned) return '<p class="rest">Nothing planned. ' + (d.removed.length ? 'The planned workout' + (d.removed.length > 1 ? 's were' : ' was') + ' removed.' : '') + '</p>';
+  return dayLogHtml(i);
+}
+function removedHtml(d) {
+  if (!d.removed || !d.removed.length) return '';
+  var ed = canEdit();
+  return d.removed.map(function (s) {
+    return '<p class="removed"><span>Removed: <s>' + SPORT[s.sport] + ' · ' + s.title + '</s></span>' +
+      (ed ? '<button type="button" class="linkbtn" data-restore="' + s.id + '">Restore</button>' : '') + '</p>';
+  }).join('');
 }
 var EXTRA_SPORTS = ['swim', 'bike', 'run', 'strength', 'hike'];
 var EXTRA_TITLE = { swim: 'Extra swim', bike: 'Extra ride', run: 'Extra run', strength: 'Extra strength', hike: 'Extra hike' };
@@ -1254,7 +1282,8 @@ function sessionHtml(s, pfx) {
   return '<div class="sess" data-row="' + s.id + '" style="--c: var(--' + s.sport + ')">' +
     '<input type="checkbox" id="c-' + u + '" data-id="' + s.id + '"' + (ed ? '' : ' disabled') + '>' +
     '<label class="s-lab" for="c-' + u + '"><span class="sport">' + SPORT[s.sport] + '</span><span class="s-title">' + s.title + '</span><span class="skip-tag" hidden>Skipped</span><span class="src-tag" hidden title="Filled in from COROS">COROS</span><span class="s-dur">' + dur + '</span></label>' +
-    '<p class="s-text">' + s.text + '</p>' + log + (ed && !s.extra && !corosFilled(s.id) ? altHtml(s, pfx) : '') + '</div>';
+    '<p class="s-text">' + s.text + '</p>' + log +
+    (ed ? (s.extra ? '<div class="alts"><button type="button" class="alt-toggle" data-del="' + s.id + '">Delete this workout</button></div>' : altHtml(s, pfx)) : '') + '</div>';
 }
 
 function altHtml(s, pfx) {
@@ -1276,6 +1305,7 @@ function altHtml(s, pfx) {
       html += '<p class="alt-cap">' + ALT_PROMPT[orig] + '</p><div class="alt-opts" role="group" aria-label="Travel options">' +
         travel.map(function (a) { return '<button type="button" data-alt="' + a.key + '"' + ref + ' aria-pressed="' + (curTravel === a) + '">' + a.label + '</button>'; }).join('') + '</div>';
     }
+    html += '<p class="alt-cap">Not doing it?</p><div class="alt-opts"><button type="button" data-remove="' + s.id + '">Remove from this day</button></div>';
     html += '</div>';
   }
   return html + '</div>';
@@ -1313,7 +1343,7 @@ function renderWeek() {
     html += '<li class="day' + (isToday ? ' is-today' : '') + (moving && moving.d === i ? ' is-moving' : '') + '"' + (ids ? ' data-ids="' + ids + '"' : '') + '>' +
       '<div class="day-label"><span class="dow">' + DOW[i] + '</span><span class="date">' + fmtShort(d.n) + '</span>' + (isToday ? '<span class="pill">Today</span>' : '') +
       (d.moved ? '<span class="moved">From ' + DOW[d.src] + '</span>' : '') + btn + '</div>' +
-      '<div class="day-body">' + (d.rest ? '<p class="rest">' + d.rest + '</p>' : (d.race ? '' : dayLogHtml(i))) + d.sessions.map(function (s) { return sessionHtml(s, 'w'); }).join('') + '</div></li>';
+      '<div class="day-body">' + dayHead(d, i) + d.sessions.map(function (s) { return sessionHtml(s, 'w'); }).join('') + removedHtml(d) + '</div></li>';
   });
   html += '</ol>';
   $('week').innerHTML = html;
@@ -1347,14 +1377,14 @@ function renderToday() {
   }
   var d = x.d;
   head += '<span>Week ' + (x.wi + 1) + ' · ' + x.w.phase.name + (x.w.recovery ? ' · recovery' : '') + '</span></span></div>';
-  if (d.rest) body = '<p class="rest">' + d.rest + '</p>' + d.sessions.map(function (s) { return sessionHtml(s, 't'); }).join('');
-  else body = (d.moved ? '<span class="moved">Moved from ' + DOW_LONG[d.src] + '</span>' : '') + (d.race ? '' : dayLogHtml(x.di)) + d.sessions.map(function (s) { return sessionHtml(s, 't'); }).join('');
+  body = (!d.rest && d.moved ? '<span class="moved">Moved from ' + DOW_LONG[d.src] + '</span>' : '') + dayHead(d, x.di) +
+    d.sessions.map(function (s) { return sessionHtml(s, 't'); }).join('') + removedHtml(d);
   var ids = d.sessions.map(function (s) { return s.id; }).join(' ');
   var nx = nextTraining(t);
   var nextTxt = nx ? 'Next: <b>' + (nx.d.n === t + 1 ? 'Tomorrow' : DOW_LONG[nx.di]) + '</b> · ' +
     nx.d.sessions.map(function (s) { return s.title + (s.dur ? ' ' + fmtDur(s.dur) : ''); }).join(' + ') : 'Next up: race day.';
   foot = '<div class="today-foot"><span>' + nextTxt + '</span>' +
-    (ed && d.sessions.some(function (s) { return !s.extra; }) && !d.race ? '<button type="button" class="linkbtn" id="today-move">Move to another day</button>' : '') + '</div>';
+    (ed && d.planned && !d.race ? '<button type="button" class="linkbtn" id="today-move">Move to another day</button>' : '') + '</div>';
   el.innerHTML = head + '<div class="today-body"' + (ids ? ' data-ids="' + ids + '"' : '') + '>' + body + '</div>' + foot;
   patchWeek();
 }
@@ -1378,8 +1408,7 @@ function patchWeek() {
   for (var k = 0; k < rows.length; k++) {
     var row = rows[k], id = row.dataset.row, l = getLog(id), st = l ? l.s : null;
     var cb = row.querySelector('input[type="checkbox"]'), fromCoros = st === 'done' && corosFilled(id);
-    if (cb) { cb.checked = st === 'done'; cb.disabled = !canEdit() || fromCoros; }
-    row.classList.toggle('is-coros', fromCoros);
+    if (cb) { cb.checked = st === 'done'; cb.disabled = !canEdit(); }
     row.classList.toggle('is-done', st === 'done');
     row.classList.toggle('is-skipped', st === 'skipped');
     var lf = row.querySelector('.logf'); if (lf) lf.hidden = st !== 'done';
@@ -1400,17 +1429,14 @@ function patchWeek() {
       var val = l && l[inp.dataset.log];
       inp.value = val != null ? fmtInput(val) : '';
       inp.removeAttribute('aria-invalid');
-      inp.readOnly = fromCoros;
     }
   }
   var days = document.querySelectorAll('[data-ids]');
   for (var m = 0; m < days.length; m++) {
     var li = days[m], dayIds = li.dataset.ids.split(' '), state = dayState(dayIds);
-    var allCoros = dayIds.every(function (x) { return corosFilled(x) && isDone(x); });
     var bs = li.querySelectorAll('[data-daylog]');
     for (var b = 0; b < bs.length; b++) {
       var kind = bs[b].dataset.daylog;
-      bs[b].disabled = allCoros;
       if (kind === 'clear') bs[b].hidden = !state;
       else bs[b].setAttribute('aria-pressed', String(state === kind));
     }
@@ -1478,7 +1504,7 @@ function collectDash() {
     var W = { i: w.i, ws: w.ws, phase: w.phase.name, plan: v.minutes, done: 0, count: v.count, doneCount: 0,
       by: { swim: 0, bike: 0, run: 0, strength: 0, hike: 0, race: 0 }, dist: { swim: 0, bike: 0, run: 0, hike: 0 }, days: [] };
     v.days.forEach(function (d) {
-      var D = { n: d.n, type: 'rest', rest: d.rest, items: [], today: d.n === t };
+      var D = { n: d.n, type: 'rest', rest: d.rest || 'Nothing planned.', items: [], today: d.n === t };
       if (d.sessions.length) {
         var nd = 0, ns = 0, nl = 0, nx = 0, planned = 0;
         d.sessions.forEach(function (s) {
@@ -1973,14 +1999,14 @@ function corosCardHtml() {
   var c = corosOf(ME) || { state: 'off' }, st = c.state, sub, btns = '', note = '';
   var mates = T.members.filter(function (m) { var x = corosOf(m.id); return m.id !== ME && x && x.state === 'on'; }).map(function (m) { return esc(m.name); });
   if (st === 'on') {
-    sub = 'COROS is the source of truth. About every 15 minutes, each watch workout fills in the planned workout of the same sport that day with its time and distance. If the plan had something else, an open workout of the same kind switches to match, and anything left over shows as an extra workout. To change one, edit or remove it in COROS. Workouts your watch didn’t record, you can still log here.';
+    sub = 'About every 15 minutes, each watch workout fills in the planned workout of the same sport that day with its time and distance. If the plan had something else, an open workout of the same kind switches to match, and anything left over shows as an extra workout. You can still change, delete or remove anything here: your changes win, and COROS won’t overwrite them.';
     note = (c.ok_at ? 'Last checked ' + fmtWhen(c.ok_at) : 'Checking your watch for the first time…') +
       (c.n ? ' · ' + c.n + ' workout' + (c.n === 1 ? '' : 's') + ' from COROS' : '');
     btns = '<button type="button" class="btn" id="coros-sync">Check now</button><button type="button" class="btn" id="coros-off">Disconnect</button>';
   } else if (st === 'connecting') {
     sub = 'Finishing the COROS sign-in. This takes a few seconds.';
   } else {
-    sub = 'Have a COROS watch? Connect it and your watch becomes the source of truth: each workout fills in the planned workout of the same sport that day with its time and distance.';
+    sub = 'Have a COROS watch? Connect it and your workouts sync in on their own: each one fills in the planned workout of the same sport that day with its time and distance. You can still change anything here.';
     btns = '<button type="button" class="btn primary" id="coros-connect">Connect COROS</button>';
   }
   var chip = st === 'on' ? '<span class="rem-state on">Connected</span>' : st === 'connecting' ? '<span class="rem-state">Connecting…</span>' : '';
@@ -2037,7 +2063,7 @@ async function corosOff(btn) {
   btn.disabled = true; btn.textContent = 'Disconnecting…';
   try {
     await rpc('coros_disconnect', { p_code: CODE, p_member: ME });
-    toast('COROS disconnected. Your logs stay as they are, and you can edit them again.');
+    toast('COROS disconnected. Your logs stay as they are.');
     await refresh();
     refocus('coros-connect');
   } catch (e) {
@@ -2122,18 +2148,10 @@ function switchView(mid, fromSwipe) {
 /* ---------- Editing ---------- */
 function setLog(id, val, debounce) {
   if (!canEdit()) return;
-  if (corosFilled(id)) return; // COROS is the source of truth for this workout
   queue({ t: 'log', m: ME, id: id, v: normLog(val) }, debounce ? 900 : 30);
-}
-function corosLocked(id) {
-  if (!corosFilled(id)) return false;
-  toast('This workout comes from your COROS watch. Change it in COROS.');
-  patchWeek();
-  return true;
 }
 function commitInput(inp, debounce) {
   var id = inp.dataset.id, field = inp.dataset.log;
-  if (corosFilled(id)) return null;
   var v = field === 'min' ? parseTime(inp.value) : parseDist(inp.value);
   var cap = field === 'min' ? 900 : 20000;
   if (v !== null && (isNaN(v) || v > cap)) {
@@ -2248,9 +2266,9 @@ document.addEventListener('change', function (e) {
   if (!t.matches) return;
   if (t.matches('.sess input[type="checkbox"][data-id]')) {
     if (!canEdit()) { patchWeek(); return; }
-    if (corosLocked(t.dataset.id)) return;
     var id = t.dataset.id, c = getLog(id);
     if (t.checked) setLog(id, { s: 'done', min: c && c.min, dist: c && c.dist });
+    else if (isExtraId(id)) { setLog(id, null); afterOvChange(); return; }
     else {
       var li = t.closest('[data-ids]'), others = li ? li.dataset.ids.split(' ').filter(function (x) { return x !== id && getLog(x); }) : [];
       setLog(id, others.length ? { s: 'skipped' } : null);
@@ -2347,10 +2365,8 @@ document.addEventListener('click', function (e) {
   else if (b.id === 'coros-off') corosOff(b);
   else if (b.dataset.daylog) {
     var li = b.closest('[data-ids]'); if (!li || !canEdit()) return;
-    var allIds = li.dataset.ids.split(' '), st = dayState(allIds), kind = b.dataset.daylog;
-    // Workouts from COROS stay as COROS has them; the buttons only change the rest of the day.
-    var ids = allIds.filter(function (id) { return !corosFilled(id); });
-    if (!ids.length) { corosLocked(allIds[0]); return; }
+    var ids = li.dataset.ids.split(' ').filter(function (id) { return !isExtraId(id); }), st = dayState(ids), kind = b.dataset.daylog;
+    if (!ids.length) return;
     if (kind === 'trained' && st !== 'trained') ids.forEach(function (id) { var c = getLog(id); if (!c || c.s !== 'done') setLog(id, { s: 'done', min: c && c.min, dist: c && c.dist }); });
     else if (kind === 'skipped' && st !== 'skipped') ids.forEach(function (id) { setLog(id, { s: 'skipped' }); });
     else if (kind === 'clear') { ids.forEach(function (id) { setLog(id, null); }); var first = li.querySelector('[data-daylog="trained"]'); if (first) first.focus({ preventScroll: true }); }
@@ -2369,6 +2385,22 @@ document.addEventListener('click', function (e) {
     openAlt = null;
     editWeek(function (o) { if (key) o.subs[sid2] = key; else delete o.subs[sid2]; }, weekIndexForSession(sid2));
     refocus('alt-' + pfx + '-' + sid2);
+  }
+  else if (b.dataset.remove) {
+    var rid = b.dataset.remove; if (!canEdit()) return;
+    openAlt = null;
+    editWeek(function (o) { var prev = o.subs[rid]; o.subs[rid] = prev && !isOff(prev) ? 'off|' + prev : 'off'; }, weekIndexForSession(rid));
+    toast('Removed from the plan. Tap Restore to bring it back.');
+  }
+  else if (b.dataset.restore) {
+    var sid3 = b.dataset.restore; if (!canEdit()) return;
+    editWeek(function (o) { var v = o.subs[sid3] || ''; if (v.indexOf('off|') === 0) o.subs[sid3] = v.slice(4); else delete o.subs[sid3]; }, weekIndexForSession(sid3));
+  }
+  else if (b.dataset.del) {
+    if (!canEdit()) return;
+    setLog(b.dataset.del, null);
+    afterOvChange();
+    toast('Workout deleted.');
   }
   else if (b.dataset.week != null) goWeek(+b.dataset.week, true);
 });

@@ -34,7 +34,10 @@ function dayFor(member, n) {
   const caps = {};
   w.days.forEach((d) => d.sessions.forEach((s) => { if (s.dur) caps[s.sport] = Math.max(caps[s.sport] || 0, s.dur); }));
   const o = w.days[(ov ? ov.order : IDENT)[n - w.ws]];
-  return { rest: o.rest, race: !!o.race, sessions: o.sessions.map((s) => eff(s, ov, caps)), week: wi + 1, phase: w.phase.name };
+  // Workouts removed from the plan ('off' or 'off|<switch>') are left out; a day with all of them removed is a rest day.
+  const kept = o.sessions.filter((s) => !(ov && /^off(\||$)/.test(ov.subs[s.id] || '')));
+  const rest = o.rest || (!kept.length && !o.race ? 'Nothing planned today. Recover well.' : null);
+  return { rest, race: !!o.race, sessions: kept.map((s) => eff(s, ov, caps)), week: wi + 1, phase: w.phase.name };
 }
 
 function morningMsg(name, day) {
