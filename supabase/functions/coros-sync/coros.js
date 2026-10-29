@@ -167,12 +167,16 @@ function distFor(km, unit) {
   if (unit === 'yd') return Math.round(km * 1093.6133);
   return null;
 }
-// Returns the logs to fill and the COROS workouts to remember.
-// A workout fills a planned session of the same sport on the same day, only if nothing is logged there yet.
-// Workouts are remembered once seen, so a cleared entry is never filled again.
-export function matchActivities(member, acts, tz, today) {
-  const seen = new Set(member.seen || []), logged = new Set(member.logged || []);
-  const groups = new Map();
+// COROS is the source of truth for every planned workout it has a match for.
+// A workout matches the planned session of the same sport on the same day (after moved days and switched workouts).
+// Returns:
+//   fills  - sessions to set to Trained with COROS's time and distance (overwrites what's logged)
+//   seen   - which COROS workout backs which session
+//   gone   - COROS workouts that were deleted or no longer match anything
+//   clears - sessions that were backed by COROS and no longer are, so their log is removed
+// Workouts outside the checked window are left alone, and nothing is cleared if COROS returned no workouts at all.
+export function planSync(member, acts, tz, today, from) {
+  const groups = new Map(), matched = new Map();
   for (const a of acts) {
     const date = localDate(tz, a.start);
     if (date < PLAN_START || date > today) continue;
@@ -184,21 +188,28 @@ export function matchActivities(member, acts, tz, today) {
     if (!s || s.sport === 'race') continue;
     if (!groups.has(s.id)) groups.set(s.id, { s, list: [] });
     groups.get(s.id).list.push(a);
+    matched.set(a.id, { session: s.id, day: date });
   }
-  const fills = [], seenOut = [];
+  const fills = [];
   for (const { s, list } of groups.values()) {
-    const fresh = list.filter((a) => !seen.has(a.id));
-    if (!fresh.length) continue;
-    const fill = !logged.has(s.id) && fresh.length === list.length;
-    if (fill) {
-      // A walk only counts toward a hike when there's no real hike that day.
-      const real = list.filter((a) => sportOf(a.sportType) !== 'walk'), use = real.length ? real : list;
-      const secs = use.reduce((t, a) => t + (a.secs || 0), 0), km = use.reduce((t, a) => t + (a.km || 0), 0);
-      fills.push({ session: s.id, min: secs ? Math.min(1440, Math.max(1, Math.round(secs / 60))) : null, dist: distFor(km, unitFor(s)) });
-    }
-    fresh.forEach((a) => seenOut.push({ label: a.id, session: s.id, filled: fill }));
+    // A walk only counts toward a hike when there's no real hike that day.
+    const real = list.filter((a) => sportOf(a.sportType) !== 'walk'), use = real.length ? real : list;
+    const secs = use.reduce((t, a) => t + (a.secs || 0), 0), km = use.reduce((t, a) => t + (a.km || 0), 0);
+    fills.push({ session: s.id, min: secs ? Math.min(1440, Math.max(1, Math.round(secs / 60))) : null, dist: distFor(km, unitFor(s)) });
   }
-  return { fills, seen: seenOut };
+  const seen = [...matched].map(([label, v]) => ({ label, session: v.session, day: v.day }));
+  const gone = [], clears = new Set();
+  if (acts.length) {
+    for (const r of member.seen || []) {
+      const d = r.day ? String(r.day).slice(0, 10) : null;
+      if (!d || d < from || d > today) continue;
+      const now = matched.get(r.label);
+      if (now && now.session === r.session) continue;
+      if (!now) gone.push(r.label);
+      if (r.session && !groups.has(r.session)) clears.add(r.session);
+    }
+  }
+  return { fills, seen, gone, clears: [...clears] };
 }
 
 /* ---------- One person's sync ---------- */
@@ -215,7 +226,7 @@ export async function syncLink(cfg, link, member, now, f = fetch) {
     const today = localDate(link.tz, now.getTime());
     let from = ds(dn(today) - (link.first ? 29 : 6));
     if (from < PLAN_START) from = PLAN_START;
-    if (from > today) { item.ok = true; item.fills = []; item.seen = []; return item; }
+    if (from > today) { item.ok = true; item.fills = []; item.seen = []; item.gone = []; item.clears = []; return item; }
     const args = { startDate: from.replace(/-/g, ''), endDate: today.replace(/-/g, ''), sportTypeCodes: [65535], minDistanceKm: 0, maxDistanceKm: 0, minDurationMinutes: 0, maxDurationMinutes: 0, maxAveragePace: '', locationKeyword: '', limit: 200 };
     let text;
     try { text = await mcpCall(cfg.issuer, access, 'querySportRecords', args, f); }
@@ -227,8 +238,8 @@ export async function syncLink(cfg, link, member, now, f = fetch) {
     }
     item.raw = String(text).slice(0, 4000);
     const acts = parseRecords(text);
-    const m = matchActivities(member, acts, link.tz, today);
-    item.fills = m.fills; item.seen = m.seen; item.ok = true; item.count = acts.length;
+    const m = planSync(member, acts, link.tz, today, from);
+    item.fills = m.fills; item.seen = m.seen; item.gone = m.gone; item.clears = m.clears; item.ok = true; item.count = acts.length;
   } catch (e) {
     item.error = e.reconnect ? 'COROS sign-in expired. Connect again.' : friendly(e);
     if (e.reconnect) item.reconnect = true;

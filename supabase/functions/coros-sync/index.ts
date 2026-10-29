@@ -2,7 +2,8 @@
 // Road to 70.3 COROS sync.
 //  GET  .../coros-sync/callback  COROS sends the person back here after they sign in. Hands the code to the database.
 //  POST {finish: state}          From the database (with the shared secret): trade the code for tokens, then sync.
-//  POST {sync: member} or {}     From the timer or "Check now" (with the shared secret): fill in recent workouts.
+//  POST {sync: member} or {}     From the timer or "Check now" (with the shared secret): sync recent workouts.
+//                                COROS is the source of truth for every planned workout it has a match for.
 import { exchangeCode, syncLink, CorosError } from './coros.js';
 
 const API = (Deno.env.get('SUPABASE_URL') || 'https://xsfptlfebxasxqgovktu.supabase.co') + '/rest/v1/rpc/';
@@ -56,6 +57,13 @@ Deno.serve(async (req) => {
     const member = (due.members || {})[link.member];
     if (member) items.push(await syncLink(cfg, link, member, now));
   }
+  // Workouts deleted in COROS (or that no longer match) come off the plan too. Done before saving, so a failure retries next time.
+  for (const it of items) {
+    const code = ((due.members || {})[it.member] || {}).team_code;
+    for (const session of it.clears || []) {
+      if (code) await rpc('set_log', { p_code: code, p_member: it.member, p_session: session, p_status: null }).catch(() => {});
+    }
+  }
   if (items.length) await rpc('coros_apply', { p_secret: secret, p_items: items });
-  return Response.json({ ok: true, results: items.map((i) => ({ ok: i.ok, workouts: i.count, filled: (i.fills || []).length, seen: (i.seen || []).length, error: i.error })) });
+  return Response.json({ ok: true, results: items.map((i) => ({ ok: i.ok, workouts: i.count, filled: (i.fills || []).length, cleared: (i.clears || []).length, error: i.error })) });
 });
