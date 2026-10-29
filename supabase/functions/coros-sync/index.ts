@@ -57,13 +57,18 @@ Deno.serve(async (req) => {
     const member = (due.members || {})[link.member];
     if (member) items.push(await syncLink(cfg, link, member, now));
   }
-  // Workouts deleted in COROS (or that no longer match) come off the plan too. Done before saving, so a failure retries next time.
+  // Automatic workout switches, then workouts deleted in COROS (or that no longer land anywhere) come off the plan.
+  // Done before saving the rest, so a failure is retried on the next check.
   for (const it of items) {
     const code = ((due.members || {})[it.member] || {}).team_code;
+    if (!code) continue;
+    for (const w of it.weekWrites || []) {
+      await rpc('set_week', { p_code: code, p_member: it.member, p_week: w.week, p_data: w.data }).catch(() => {});
+    }
     for (const session of it.clears || []) {
-      if (code) await rpc('set_log', { p_code: code, p_member: it.member, p_session: session, p_status: null }).catch(() => {});
+      await rpc('set_log', { p_code: code, p_member: it.member, p_session: session, p_status: null }).catch(() => {});
     }
   }
-  if (items.length) await rpc('coros_apply', { p_secret: secret, p_items: items });
-  return Response.json({ ok: true, results: items.map((i) => ({ ok: i.ok, workouts: i.count, filled: (i.fills || []).length, cleared: (i.clears || []).length, error: i.error })) });
+  if (items.length) await rpc('coros_apply', { p_secret: secret, p_items: items.map(({ weekWrites, clears, ...rest }) => rest) });
+  return Response.json({ ok: true, results: items.map((i) => ({ ok: i.ok, workouts: i.count, filled: (i.fills || []).length, switched: (i.weekWrites || []).length, cleared: (i.clears || []).length, error: i.error })) });
 });

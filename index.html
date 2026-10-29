@@ -561,7 +561,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 13</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 14</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -911,9 +911,22 @@ function weekView(w) {
     var o = w.days[src];
     var sessions = o.sessions.map(function (s) { return eff(s, ov, caps); });
     sessions.forEach(function (s) { if (s.dur) minutes += s.dur; count++; });
-    return { n: w.ws + d, rest: o.rest, sessions: sessions, race: !!o.race, moved: src !== d, src: src };
+    // Extra workouts from a COROS watch (not in the plan) sit on their calendar day.
+    return { n: w.ws + d, rest: o.rest, sessions: sessions.concat(extrasFor(w.ws + d)), race: !!o.race, moved: src !== d, src: src };
   });
   return { days: days, minutes: minutes, count: count, ov: ov };
+}
+var EXTRA_SPORTS = ['swim', 'bike', 'run', 'strength', 'hike'];
+var EXTRA_TITLE = { swim: 'Extra swim', bike: 'Extra ride', run: 'Extra run', strength: 'Extra strength', hike: 'Extra hike' };
+function extrasFor(n) {
+  var L = T && T.logs[VIEW], out = [];
+  if (!L) return out;
+  EXTRA_SPORTS.forEach(function (sp) {
+    var id = ds(n) + '_x' + sp;
+    if (L[id]) out.push({ id: id, sport: sp, title: EXTRA_TITLE[sp], dur: null, extra: true,
+      text: 'From the COROS watch. Not in the plan, but it counts toward hours and distance.' });
+  });
+  return out;
 }
 function withView(mid, fn) {
   var pv = VIEW, pp = plan;
@@ -1014,7 +1027,8 @@ async function flush() {
 function structSig() {
   if (!T) return '';
   var m = memberById(VIEW);
-  return JSON.stringify([T.members, VIEW, m && m.race, T.weeks[VIEW] || {}]);
+  var c = T.coros && T.coros[VIEW], extras = Object.keys(T.logs[VIEW] || {}).filter(function (k) { return /_x[a-z]+$/.test(k); }).sort();
+  return JSON.stringify([T.members, VIEW, m && m.race, T.weeks[VIEW] || {}, (c && c.state === 'on' && c.ids) || [], extras]);
 }
 var refreshing = false;
 async function refresh() {
@@ -1045,7 +1059,7 @@ async function refresh() {
 function weekDone(w, v) {
   v = v || weekView(w);
   var c = 0, m = 0;
-  v.days.forEach(function (d) { d.sessions.forEach(function (s) { if (isDone(s.id)) { c++; m += sessMin(s); } }); });
+  v.days.forEach(function (d) { d.sessions.forEach(function (s) { if (isDone(s.id)) { if (!s.extra) c++; m += sessMin(s); } }); });
   return { c: c, m: m };
 }
 function phaseGroups() {
@@ -1079,6 +1093,7 @@ function bibStats() {
       var any = false;
       d.sessions.forEach(function (x) {
         var l = getLog(x.id), ok = !!l && l.s === 'done';
+        if (x.extra) { if (ok) { s.mins += sessMin(x); any = true; } return; }
         s.total++;
         if (ok) { s.done++; s.mins += sessMin(x); any = true; }
         if (d.n < t || l) { s.due++; if (ok) s.dueDone++; }
@@ -1229,7 +1244,7 @@ function dayLogHtml(i) {
 
 // pfx keeps element ids unique when the same workout shows in Today and in the week list.
 function sessionHtml(s, pfx) {
-  var unit = unitFor(s), dur = s.dur ? fmtDur(s.dur) : '70.3 mi', ed = canEdit(), u = pfx + '-' + s.id;
+  var unit = unitFor(s), dur = s.extra ? '' : s.dur ? fmtDur(s.dur) : '70.3 mi', ed = canEdit(), u = pfx + '-' + s.id;
   var log = ed
     ? '<div class="logf" hidden>' +
         '<label class="lf" for="t-' + u + '"><span class="lf-l">Time</span><input type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" id="t-' + u + '" data-log="min" data-id="' + s.id + '" placeholder="' + (s.dur || '') + '"><span>min</span></label>' +
@@ -1239,7 +1254,7 @@ function sessionHtml(s, pfx) {
   return '<div class="sess" data-row="' + s.id + '" style="--c: var(--' + s.sport + ')">' +
     '<input type="checkbox" id="c-' + u + '" data-id="' + s.id + '"' + (ed ? '' : ' disabled') + '>' +
     '<label class="s-lab" for="c-' + u + '"><span class="sport">' + SPORT[s.sport] + '</span><span class="s-title">' + s.title + '</span><span class="skip-tag" hidden>Skipped</span><span class="src-tag" hidden title="Filled in from COROS">COROS</span><span class="s-dur">' + dur + '</span></label>' +
-    '<p class="s-text">' + s.text + '</p>' + log + (ed ? altHtml(s, pfx) : '') + '</div>';
+    '<p class="s-text">' + s.text + '</p>' + log + (ed && !s.extra && !corosFilled(s.id) ? altHtml(s, pfx) : '') + '</div>';
 }
 
 function altHtml(s, pfx) {
@@ -1298,7 +1313,7 @@ function renderWeek() {
     html += '<li class="day' + (isToday ? ' is-today' : '') + (moving && moving.d === i ? ' is-moving' : '') + '"' + (ids ? ' data-ids="' + ids + '"' : '') + '>' +
       '<div class="day-label"><span class="dow">' + DOW[i] + '</span><span class="date">' + fmtShort(d.n) + '</span>' + (isToday ? '<span class="pill">Today</span>' : '') +
       (d.moved ? '<span class="moved">From ' + DOW[d.src] + '</span>' : '') + btn + '</div>' +
-      '<div class="day-body">' + (d.rest ? '<p class="rest">' + d.rest + '</p>' : (d.race ? '' : dayLogHtml(i)) + d.sessions.map(function (s) { return sessionHtml(s, 'w'); }).join('')) + '</div></li>';
+      '<div class="day-body">' + (d.rest ? '<p class="rest">' + d.rest + '</p>' : (d.race ? '' : dayLogHtml(i))) + d.sessions.map(function (s) { return sessionHtml(s, 'w'); }).join('') + '</div></li>';
   });
   html += '</ol>';
   $('week').innerHTML = html;
@@ -1332,14 +1347,14 @@ function renderToday() {
   }
   var d = x.d;
   head += '<span>Week ' + (x.wi + 1) + ' · ' + x.w.phase.name + (x.w.recovery ? ' · recovery' : '') + '</span></span></div>';
-  if (d.rest) body = '<p class="rest">' + d.rest + '</p>';
+  if (d.rest) body = '<p class="rest">' + d.rest + '</p>' + d.sessions.map(function (s) { return sessionHtml(s, 't'); }).join('');
   else body = (d.moved ? '<span class="moved">Moved from ' + DOW_LONG[d.src] + '</span>' : '') + (d.race ? '' : dayLogHtml(x.di)) + d.sessions.map(function (s) { return sessionHtml(s, 't'); }).join('');
   var ids = d.sessions.map(function (s) { return s.id; }).join(' ');
   var nx = nextTraining(t);
   var nextTxt = nx ? 'Next: <b>' + (nx.d.n === t + 1 ? 'Tomorrow' : DOW_LONG[nx.di]) + '</b> · ' +
     nx.d.sessions.map(function (s) { return s.title + (s.dur ? ' ' + fmtDur(s.dur) : ''); }).join(' + ') : 'Next up: race day.';
   foot = '<div class="today-foot"><span>' + nextTxt + '</span>' +
-    (ed && d.sessions.length && !d.race ? '<button type="button" class="linkbtn" id="today-move">Move to another day</button>' : '') + '</div>';
+    (ed && d.sessions.some(function (s) { return !s.extra; }) && !d.race ? '<button type="button" class="linkbtn" id="today-move">Move to another day</button>' : '') + '</div>';
   el.innerHTML = head + '<div class="today-body"' + (ids ? ' data-ids="' + ids + '"' : '') + '>' + body + '</div>' + foot;
   patchWeek();
 }
@@ -1465,14 +1480,16 @@ function collectDash() {
     v.days.forEach(function (d) {
       var D = { n: d.n, type: 'rest', rest: d.rest, items: [], today: d.n === t };
       if (d.sessions.length) {
-        var nd = 0, ns = 0, nl = 0;
+        var nd = 0, ns = 0, nl = 0, nx = 0, planned = 0;
         d.sessions.forEach(function (s) {
-          var l = getLog(s.id), st = l ? l.s : null, unit = unitFor(s), due = d.n < t || !!l;
+          var l = getLog(s.id), st = l ? l.s : null, unit = unitFor(s), due = (d.n < t || !!l) && !s.extra;
           var it = { s: s, st: st, min: null, dist: null, unit: unit };
+          if (!s.extra) planned++;
           if (s.sport === 'hike') R.hasHike = true;
           if (st === 'done') {
             var m = l.min != null ? l.min : (s.dur || 0);
-            it.min = m; it.logged = l.min != null; W.done += m; W.doneCount++; nd++;
+            it.min = m; it.logged = l.min != null; W.done += m; nd++;
+            if (s.extra) nx++; else W.doneCount++;
             W.by[s.sport] += m;
             if (s.sport === 'race') R.hasRace = true;
             if (R.sport[s.sport]) R.sport[s.sport].min += m;
@@ -1487,13 +1504,13 @@ function collectDash() {
           }
           D.items.push(it);
         });
-        R.tot.done += nd; R.tot.skipped += ns;
+        R.tot.done += nd - nx; R.tot.skipped += ns;
         if (d.race) D.type = nd ? 'race-done' : (d.n < t ? 'unlogged' : 'race');
         else if (nd && nd === d.sessions.length) D.type = 'trained';
         else if (nd) D.type = 'partial';
         else if (ns) D.type = 'skipped';
         else D.type = d.n < t ? 'unlogged' : 'upcoming';
-        if (d.n < t || nl) { R.tot.daysDue++; if (nd) R.tot.daysTrained++; }
+        if (planned && (d.n < t || nl)) { R.tot.daysDue++; if (nd) R.tot.daysTrained++; }
       }
       W.days.push(D);
     });
@@ -1956,7 +1973,7 @@ function corosCardHtml() {
   var c = corosOf(ME) || { state: 'off' }, st = c.state, sub, btns = '', note = '';
   var mates = T.members.filter(function (m) { var x = corosOf(m.id); return m.id !== ME && x && x.state === 'on'; }).map(function (m) { return esc(m.name); });
   if (st === 'on') {
-    sub = 'COROS is the source of truth. About every 15 minutes, each watch workout fills in the planned workout of the same sport that day with its time and distance, replacing anything logged there. To change one, edit or remove it in COROS. Workouts your watch didn’t record, you can still log here.';
+    sub = 'COROS is the source of truth. About every 15 minutes, each watch workout fills in the planned workout of the same sport that day with its time and distance. If the plan had something else, an open workout of the same kind switches to match, and anything left over shows as an extra workout. To change one, edit or remove it in COROS. Workouts your watch didn’t record, you can still log here.';
     note = (c.ok_at ? 'Last checked ' + fmtWhen(c.ok_at) : 'Checking your watch for the first time…') +
       (c.n ? ' · ' + c.n + ' workout' + (c.n === 1 ? '' : 's') + ' from COROS' : '');
     btns = '<button type="button" class="btn" id="coros-sync">Check now</button><button type="button" class="btn" id="coros-off">Disconnect</button>';

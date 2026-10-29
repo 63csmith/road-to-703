@@ -1,7 +1,7 @@
 // COROS: sign-in tokens, calls to the official COROS MCP connector, and matching watch workouts to the plan.
 // Plain JavaScript so it runs in Deno (the edge function) and Node (the tests).
 // @ts-nocheck
-import { buildPlan, normOv, eff, ds, dn, unitFor, IDENT, DEFAULT_RACE, PLAN_START } from './plan.js';
+import { buildPlan, normOv, eff, ds, dn, wd, unitFor, IDENT, DEFAULT_RACE, PLAN_START } from './plan.js';
 
 export class CorosError extends Error {
   constructor(msg, opts = {}) { super(msg); this.status = opts.status || 0; this.reconnect = !!opts.reconnect; this.auth = !!opts.auth; }
@@ -167,49 +167,127 @@ function distFor(km, unit) {
   if (unit === 'yd') return Math.round(km * 1093.6133);
   return null;
 }
-// COROS is the source of truth for every planned workout it has a match for.
-// A workout matches the planned session of the same sport on the same day (after moved days and switched workouts).
+const kindOf = (sp) => (sp === 'strength' ? 'strength' : 'endurance');
+const weekOf = (date) => { const n = dn(date); return ds(n - wd(n)); };
+
+// COROS is the source of truth. Each watch workout in the checked window (from..today) lands somewhere:
+//   1. the planned workout of the same sport that day (after her moved days and switched workouts), or
+//   2. an open planned workout of the same kind that day, switched to the watch's sport (open = not already
+//      matched, not one she switched herself, and not marked done by hand), or
+//   3. an extra workout on that day (id YYYY-MM-DD_x<sport>), e.g. a run on a rest day.
+// The window is worked out from scratch every time, including earlier automatic switches, so the result
+// settles on the right answer as the day's workouts come in. Casual walks only count toward a planned hike.
 // Returns:
-//   fills  - sessions to set to Trained with COROS's time and distance (overwrites what's logged)
-//   seen   - which COROS workout backs which session
-//   gone   - COROS workouts that were deleted or no longer match anything
-//   clears - sessions that were backed by COROS and no longer are, so their log is removed
-// Workouts outside the checked window are left alone, and nothing is cleared if COROS returned no workouts at all.
+//   fills      - sessions to set to Trained with COROS's time and distance (overwrites what's logged)
+//   seen       - which COROS workout backs which session
+//   gone       - COROS workouts that were deleted or no longer land anywhere
+//   clears     - sessions that were backed by COROS and no longer are, so their log is removed
+//   weekWrites - week changes to save (her own changes plus the automatic switches)
+//   auto       - the automatic switches now in force: { sessionId: { v: 'to:bike', day } }
+// If COROS returned no workouts at all, nothing changes.
 export function planSync(member, acts, tz, today, from) {
-  const groups = new Map(), matched = new Map();
+  const none = { fills: [], seen: [], gone: [], clears: [], weekWrites: [], auto: null };
+  if (!acts.length) return none;
+  const inWin = (d) => !!d && d >= from && d <= today;
+  const auto = {};
+  for (const [sid, a] of Object.entries(member.auto || {})) if (a && typeof a.v === 'string' && a.day) auto[sid] = a;
+  // Her own week changes, without our automatic switches (unless she has changed them since).
+  const current = {}, userWeeks = {};
+  for (const [ws, raw] of Object.entries(member.weeks || {})) {
+    const ov = normOv(raw); if (!ov) continue;
+    const key = String(ws).slice(0, 10), subs = { ...ov.subs };
+    current[key] = ov;
+    for (const [sid, a] of Object.entries(auto)) if (subs[sid] === a.v) delete subs[sid];
+    userWeeks[key] = { order: ov.order, subs };
+  }
+  // Automatic switches on days before the window stay as they are (if still in place).
+  const keep = {};
+  for (const [sid, a] of Object.entries(auto)) {
+    if (inWin(a.day)) continue;
+    const cur = current[weekOf(sid.slice(0, 10))];
+    if (cur && cur.subs[sid] === a.v) keep[sid] = a;
+  }
+  const baseWeeks = {};
+  for (const [ws, w] of Object.entries(userWeeks)) baseWeeks[ws] = { order: w.order.slice(), subs: { ...w.subs } };
+  for (const [sid, a] of Object.entries(keep)) {
+    const ws = weekOf(sid.slice(0, 10));
+    (baseWeeks[ws] = baseWeeks[ws] || { order: IDENT.slice(), subs: {} }).subs[sid] = a.v;
+  }
+  const base = { ...member, weeks: baseWeeks };
+  const logs = member.logs || {}, backed = new Set((member.seen || []).map((r) => r.session));
+
+  const list = [];
   for (const a of acts) {
     const date = localDate(tz, a.start);
-    if (date < PLAN_START || date > today) continue;
+    if (date < PLAN_START || !inWin(date)) continue;
     const sp = sportOf(a.sportType);
-    if (!sp) continue;
-    const day = dayFor(member, dn(date));
-    if (!day || !day.sessions.length) continue;
-    const s = day.sessions.find((x) => x.sport === sp) || (sp === 'walk' ? day.sessions.find((x) => x.sport === 'hike') : null);
-    if (!s || s.sport === 'race') continue;
-    if (!groups.has(s.id)) groups.set(s.id, { s, list: [] });
-    groups.get(s.id).list.push(a);
-    matched.set(a.id, { session: s.id, day: date });
+    if (sp) list.push({ a, date, sp });
   }
+  list.sort((x, y) => x.a.start - y.a.start);
+
+  const days = new Map();
+  const dayOf = (date) => { if (!days.has(date)) days.set(date, dayFor(base, dn(date))); return days.get(date); };
+  const groups = new Map(), matched = new Map(), newAuto = {};
+  const put = (id, unit, it) => {
+    if (!groups.has(id)) groups.set(id, { unit, list: [] });
+    groups.get(id).list.push(it.a);
+    matched.set(it.a.id, { session: id, day: it.date });
+  };
+  // 1. Same sport as planned.
+  const left = [];
+  for (const it of list) {
+    const day = dayOf(it.date), ss = day && !day.race ? day.sessions : [];
+    const s = ss.find((x) => x.sport === it.sp) || (it.sp === 'walk' ? ss.find((x) => x.sport === 'hike') : null);
+    if (s) put(s.id, unitFor(s), it); else left.push(it);
+  }
+  // 2 and 3. Switch an open planned workout to the watch's sport, or add an extra workout.
+  const placed = new Map();
+  for (const it of left) {
+    if (it.sp === 'walk') continue;
+    const day = dayOf(it.date);
+    if (day && day.race) continue;
+    const key = it.date + '|' + it.sp;
+    let id = placed.get(key);
+    if (!id) {
+      const open = (day ? day.sessions : []).filter((x) => x.sport !== 'race' && !x.alt && !groups.has(x.id) && !(logs[x.id] === 'done' && !backed.has(x.id)));
+      // Only the same kind of workout (endurance for endurance, strength for strength): strength is often not on the watch,
+      // so a ride shouldn't take over the strength slot she may still do later.
+      const s = open.find((x) => kindOf(x.sport) === kindOf(it.sp));
+      if (s) { id = s.id; newAuto[id] = { v: 'to:' + it.sp, day: it.date }; }
+      else id = it.date + '_x' + it.sp;
+      placed.set(key, id);
+    }
+    put(id, unitFor({ sport: it.sp, alt: newAuto[id] ? newAuto[id].v : undefined }), it);
+  }
+
   const fills = [];
-  for (const { s, list } of groups.values()) {
+  for (const [id, g] of groups) {
     // A walk only counts toward a hike when there's no real hike that day.
-    const real = list.filter((a) => sportOf(a.sportType) !== 'walk'), use = real.length ? real : list;
+    const real = g.list.filter((a) => sportOf(a.sportType) !== 'walk'), use = real.length ? real : g.list;
     const secs = use.reduce((t, a) => t + (a.secs || 0), 0), km = use.reduce((t, a) => t + (a.km || 0), 0);
-    fills.push({ session: s.id, min: secs ? Math.min(1440, Math.max(1, Math.round(secs / 60))) : null, dist: distFor(km, unitFor(s)) });
+    fills.push({ session: id, min: secs ? Math.min(1440, Math.max(1, Math.round(secs / 60))) : null, dist: distFor(km, g.unit) });
   }
   const seen = [...matched].map(([label, v]) => ({ label, session: v.session, day: v.day }));
   const gone = [], clears = new Set();
-  if (acts.length) {
-    for (const r of member.seen || []) {
-      const d = r.day ? String(r.day).slice(0, 10) : null;
-      if (!d || d < from || d > today) continue;
-      const now = matched.get(r.label);
-      if (now && now.session === r.session) continue;
-      if (!now) gone.push(r.label);
-      if (r.session && !groups.has(r.session)) clears.add(r.session);
-    }
+  for (const r of member.seen || []) {
+    const d = r.day ? String(r.day).slice(0, 10) : null;
+    if (!inWin(d)) continue;
+    const now = matched.get(r.label);
+    if (now && now.session === r.session) continue;
+    if (!now) gone.push(r.label);
+    if (r.session && !groups.has(r.session)) clears.add(r.session);
   }
-  return { fills, seen, gone, clears: [...clears] };
+  // Week changes to save: her own changes plus the automatic switches.
+  const autoOut = { ...keep, ...newAuto }, touched = new Set();
+  for (const sid of [...Object.keys(auto), ...Object.keys(newAuto)]) touched.add(weekOf(sid.slice(0, 10)));
+  const weekWrites = [];
+  for (const ws of touched) {
+    const u = userWeeks[ws] || { order: IDENT.slice(), subs: {} }, subs = { ...u.subs };
+    for (const [sid, a] of Object.entries(autoOut)) if (weekOf(sid.slice(0, 10)) === ws) subs[sid] = a.v;
+    const next = normOv({ order: u.order, subs });
+    if (JSON.stringify(next) !== JSON.stringify(current[ws] || null)) weekWrites.push({ week: ws, data: next });
+  }
+  return { fills, seen, gone, clears: [...clears], weekWrites, auto: autoOut };
 }
 
 /* ---------- One person's sync ---------- */
@@ -226,7 +304,7 @@ export async function syncLink(cfg, link, member, now, f = fetch) {
     const today = localDate(link.tz, now.getTime());
     let from = ds(dn(today) - (link.first ? 29 : 6));
     if (from < PLAN_START) from = PLAN_START;
-    if (from > today) { item.ok = true; item.fills = []; item.seen = []; item.gone = []; item.clears = []; return item; }
+    if (from > today) { item.ok = true; return item; }
     const args = { startDate: from.replace(/-/g, ''), endDate: today.replace(/-/g, ''), sportTypeCodes: [65535], minDistanceKm: 0, maxDistanceKm: 0, minDurationMinutes: 0, maxDurationMinutes: 0, maxAveragePace: '', locationKeyword: '', limit: 200 };
     let text;
     try { text = await mcpCall(cfg.issuer, access, 'querySportRecords', args, f); }
@@ -239,7 +317,9 @@ export async function syncLink(cfg, link, member, now, f = fetch) {
     item.raw = String(text).slice(0, 4000);
     const acts = parseRecords(text);
     const m = planSync(member, acts, link.tz, today, from);
-    item.fills = m.fills; item.seen = m.seen; item.gone = m.gone; item.clears = m.clears; item.ok = true; item.count = acts.length;
+    item.fills = m.fills; item.seen = m.seen; item.gone = m.gone; item.clears = m.clears; item.weekWrites = m.weekWrites;
+    if (m.auto) item.auto = m.auto;
+    item.ok = true; item.count = acts.length;
   } catch (e) {
     item.error = e.reconnect ? 'COROS sign-in expired. Connect again.' : friendly(e);
     if (e.reconnect) item.reconnect = true;
