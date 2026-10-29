@@ -473,13 +473,9 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
     <div class="field-col"><label for="ob-code">Team code</label><input class="txt" id="ob-code" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="ABCD-EFGH" maxlength="12" enterkeyhint="go"></div>
     <div class="btn-row"><button type="button" class="btn primary" id="ob-join-btn">Continue</button></div>
   </section>
-  <p class="ob-or" id="ob-or">or</p>
   <section class="ob-card" id="ob-new">
-    <h2>Start a new team</h2>
-    <p class="sub">You’ll get a code to share with your partner.</p>
-    <div class="field-col"><label for="ob-new-name">Your name</label><input class="txt" id="ob-new-name" autocomplete="given-name" maxlength="40" enterkeyhint="next"></div>
-    <div class="field-col"><label for="ob-new-race">Race date</label><input class="txt" type="date" id="ob-new-race"></div>
-    <div class="btn-row"><button type="button" class="btn primary" id="ob-create-btn">Create team</button></div>
+    <h2>No code yet?</h2>
+    <p class="sub">Ask whoever set up your team. The code is on their Team tab, and they can tap Share invite to send it to you.</p>
   </section>
   <section class="ob-card" id="ob-who" hidden>
     <h2>Who’s using this phone?</h2>
@@ -550,7 +546,7 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   </div>
   </section>
 
-  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 7</p>
+  <p class="foot">Changes save to your team and sync to every phone. They’re kept on this phone while you’re offline.<br>Version 8</p>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -876,7 +872,7 @@ var sel = 0;
 var moving = null, openAlt = null;
 var view = 'plan';
 var dashWeek = null, dashDay = null, lastR = null, tableOpen = false;
-var leaving = false, editingName = false;
+var leaving = false, editingName = false, rotating = false;
 
 function memberById(id) { if (!T) return null; for (var i = 0; i < T.members.length; i++) { if (T.members[i].id === id) return T.members[i]; } return null; }
 function canEdit() { return !!T && !!ME && VIEW === ME; }
@@ -1019,7 +1015,7 @@ async function refresh() {
     if (!hadT || structSig() !== before) renderAll(); else refreshProgress();
   } catch (e) {
     if (e.offline) setStatus(T ? 'Offline. Showing what was last synced.' : 'You’re offline. Connect to load your team.', 'warn');
-    else if (/team not found/i.test(e.message)) { resetDevice(); showOnboard('That team code no longer works. Enter it again or start a new team.'); }
+    else if (/team not found/i.test(e.message)) { resetDevice(); showOnboard('Your team’s code has changed. Ask your teammate for the new code and enter it here.'); }
     else setStatus(friendly(e), 'error');
   } finally { refreshing = false; }
 }
@@ -1727,10 +1723,18 @@ function renderTeam() {
     row('Run', function (x) { var d = x.R.sport.run.dist; return d ? '<b>' + fmtDist(d, 'mi') + '</b>' : '–'; }) +
     (stats.some(function (x) { return x.R.hasHike; }) ? row('Hike', function (x) { var o = x.R.sport.hike; return o.min || o.dist ? '<b>' + (o.dist ? fmtDist(o.dist, 'mi') : fmtH(o.min) + ' h') + '</b>' + (o.dist && o.min ? '<small>' + fmtH(o.min) + ' h</small>' : '') : '–'; }) : '') +
     '</tbody></table></div></article>';
-  html += '<article class="card"><div class="card-h"><h2>Invite your partner</h2><p class="sub">Share this team code. Anyone with it can see and edit your team’s logs, so keep it between you.</p></div>' +
+  var others = T.members.filter(function (m) { return m.id !== ME; }).map(function (m) { return esc(m.name); });
+  var othersTxt = others.length ? others.join(' and ') : 'Anyone else on your team';
+  html += '<article class="card"><div class="card-h"><h2>Team code</h2><p class="sub">Share it to invite someone. Anyone with the code can see and edit your team’s logs, so keep it between you. If it gets out, change it.</p></div>' +
     '<div class="code-box"><span class="ob-code" id="team-code">' + fmtCode(CODE) + '</span><div class="btn-row"><button type="button" class="btn" id="copy-code">Copy code</button>' +
     (navigator.share ? '<button type="button" class="btn primary" id="share-invite">Share invite</button>' : '<button type="button" class="btn primary" id="copy-link">Copy invite link</button>') + '</div></div>' +
-    '<ol class="steps"><li>On their iPhone, open the invite link in Safari.</li><li>Tap Share, then <b>Add to Home Screen</b>.</li><li>Open the app from the Home Screen, enter the code, and add their name and race date.</li></ol></article>';
+    '<ol class="steps"><li>On their iPhone, open the invite link in Safari.</li><li>Tap Share, then <b>Add to Home Screen</b>.</li><li>Open the app from the Home Screen, enter the code, and add their name and race date.</li></ol>' +
+    (rotating
+      ? '<div class="confirm" role="alert"><span>The current code stops working right away. ' + othersTxt + ' will need to enter the new code once on ' + (others.length === 1 ? 'their phone' : 'each phone') + '. No logs are lost.</span><div class="btn-row"><button type="button" class="btn primary" id="rotate-confirm">Change code</button><button type="button" class="btn" id="rotate-cancel">Cancel</button></div></div>'
+      : '<div class="btn-row"><button type="button" class="btn" id="rotate-code">Change team code</button></div>') +
+    '</article>';
+  html += '<article class="card"><div class="card-h"><h2>Your data</h2><p class="sub">Download every workout your team has logged as a spreadsheet (CSV). The free database doesn’t keep backups you can download, so save a copy every month or so.</p></div>' +
+    '<div class="btn-row"><button type="button" class="btn" id="export-csv">Export logs</button></div></article>';
   html += '<article class="card"><div class="card-h"><h2>This phone</h2><p class="sub">You’re signed in as <b>' + esc(me ? me.name : '') + '</b>.</p></div>' +
     (editingName
       ? '<div class="field-col"><label for="edit-name">Your name</label><input class="txt" id="edit-name" maxlength="40" value="' + esc(me ? me.name : '') + '"></div><div class="btn-row"><button type="button" class="btn primary" id="save-name">Save name</button><button type="button" class="btn" id="cancel-name">Cancel</button></div>'
@@ -1740,6 +1744,55 @@ function renderTeam() {
   el.innerHTML = html;
 }
 function inviteUrl() { return location.origin + location.pathname + '?team=' + CODE; }
+
+async function rotateCode(btn) {
+  btn.disabled = true; btn.textContent = 'Changing…';
+  try {
+    await flush();
+    var r = await rpc('rotate_team_code', { p_code: CODE, p_member: ME });
+    CODE = r.code; lsSet(K.code, CODE);
+    rotating = false;
+    renderTeam();
+    toast('New code: ' + fmtCode(CODE));
+  } catch (e) {
+    toast(e.offline ? 'You’re offline. Connect and try again.' : friendly(e));
+    btn.disabled = false; btn.textContent = 'Change code';
+  }
+}
+
+function csvCell(v) { v = v == null ? '' : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function exportCsv() {
+  var rows = [['Person', 'Date', 'Day', 'Sport', 'Workout', 'Status', 'Minutes', 'Distance', 'Unit', 'Planned minutes']];
+  T.members.forEach(function (m) {
+    withView(m.id, function () {
+      plan.weeks.forEach(function (w) {
+        weekView(w).days.forEach(function (d) {
+          d.sessions.forEach(function (s) {
+            var l = getLog(s.id);
+            if (!l) return;
+            var u = unitFor(s), hasD = l.dist != null && !!u;
+            rows.push([m.name, ds(d.n), DOW[wd(d.n)], SPORT[s.sport], s.title, l.s === 'done' ? 'Done' : 'Skipped',
+              l.min != null ? l.min : '', hasD ? l.dist : '', hasD ? u : '', s.dur || '']);
+          });
+        });
+      });
+    });
+  });
+  var csv = rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
+  var name = 'road-to-703-logs-' + ds(todayN()) + '.csv';
+  var file = null;
+  try { file = new File([csv], name, { type: 'text/csv' }); } catch (e) {}
+  if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: 'Road to 70.3 logs' }).catch(function () {});
+    return;
+  }
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  toast('Saved ' + (rows.length - 1) + ' workouts');
+}
 function copyText(text, okMsg) {
   var done = function () { toast(okMsg); };
   try {
@@ -1854,10 +1907,8 @@ function obErr(msg) { $('ob-err').textContent = msg || ''; }
 function busy(btn, on, label) { btn.disabled = on; if (label) btn.textContent = label; }
 function showOnboard(msg) {
   $('app').hidden = true; $('onboard').hidden = false;
-  $('ob-join').hidden = false; $('ob-new').hidden = false; $('ob-or').hidden = false; $('ob-who').hidden = true;
+  $('ob-join').hidden = false; $('ob-new').hidden = false; $('ob-who').hidden = true;
   $('ob-install').hidden = !(isIOS() && !isStandalone());
-  if (!$('ob-new-race').value) $('ob-new-race').value = DEFAULT_RACE;
-  $('ob-new-race').min = MIN_RACE; $('ob-new-race').max = MAX_RACE;
   obErr(msg);
 }
 function showWho(data) {
@@ -1865,7 +1916,7 @@ function showWho(data) {
   else if (T) pendingTeam = { code: CODE, members: T.members.map(function (m) { return { id: m.id, name: m.name, race_date: m.race }; }) };
   if (!pendingTeam) { showOnboard(); return; }
   showOnboard();
-  $('ob-join').hidden = true; $('ob-new').hidden = true; $('ob-or').hidden = true; $('ob-who').hidden = false;
+  $('ob-join').hidden = true; $('ob-new').hidden = true; $('ob-who').hidden = false;
   $('ob-who-sub').textContent = 'Team ' + fmtCode(pendingTeam.code) + '. Pick your name, or add yourself.';
   $('ob-who-list').innerHTML = (pendingTeam.members || []).map(function (m) {
     return '<button type="button" class="btn" data-claim="' + m.id + '">' + esc(m.name) + '<span>Race ' + fmtShort(dn(String(m.race_date).slice(0, 10))) + '</span></button>';
@@ -1901,21 +1952,6 @@ async function joinWithCode() {
   try { var data = await rpc('get_team', { p_code: code }); data.code = code; showWho(data); }
   catch (e) { obErr(e.offline ? 'You’re offline. Connect to the internet to join a team.' : /team not found/i.test(e.message) ? 'No team has that code. Check it and try again.' : friendly(e)); }
   finally { busy(btn, false, 'Continue'); }
-}
-async function createTeam() {
-  var btn = $('ob-create-btn'), name = $('ob-new-name').value.trim(), race = $('ob-new-race').value;
-  if (!name) { obErr('Enter your name.'); $('ob-new-name').focus(); return; }
-  if (!validRace(race)) { obErr('Pick a race date between ' + fmtShort(dn(MIN_RACE)) + ' and ' + fmtLong(dn(MAX_RACE)) + '.'); return; }
-  obErr(''); busy(btn, true, 'Creating…');
-  try {
-    var r = await rpc('create_team', { p_name: name, p_race: race });
-    var data = await rpc('get_team', { p_code: r.code });
-    location.hash = 'team';
-    moreOpen = true;
-    signIn(r.code, r.member_id, data);
-    toast('Team created. Share the code with your partner.');
-  } catch (e) { obErr(e.offline ? 'You’re offline. Connect to the internet to create a team.' : friendly(e)); }
-  finally { busy(btn, false, 'Create team'); }
 }
 async function addMe() {
   var btn = $('ob-add-btn'), name = $('ob-add-name').value.trim(), race = $('ob-add-race').value;
@@ -1979,7 +2015,6 @@ document.addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('button');
   if (!b) return;
   if (b.id === 'ob-join-btn') joinWithCode();
-  else if (b.id === 'ob-create-btn') createTeam();
   else if (b.id === 'ob-add-btn') addMe();
   else if (b.id === 'ob-back-btn') { pendingTeam = null; if (CODE && !ME) resetDevice(); showOnboard(); }
   else if (b.dataset.claim) { var pt = pendingTeam; signIn(pt.code, b.dataset.claim, pt.logs ? pt : null); }
@@ -2022,6 +2057,10 @@ document.addEventListener('click', function (e) {
     renderAll();
   }
   else if (b.id === 'switch-person') { leaving = false; editingName = false; lsSet(K.me, null); var keep = T; ME = null; showWho(); T = keep; }
+  else if (b.id === 'rotate-code') { rotating = true; leaving = false; editingName = false; renderTeam(); refocus('rotate-confirm'); }
+  else if (b.id === 'rotate-cancel') { rotating = false; renderTeam(); }
+  else if (b.id === 'rotate-confirm') rotateCode(b);
+  else if (b.id === 'export-csv') exportCsv();
   else if (b.id === 'leave-team') { leaving = true; editingName = false; renderTeam(); }
   else if (b.id === 'leave-cancel') { leaving = false; renderTeam(); }
   else if (b.id === 'leave-confirm') { leaving = false; resetDevice(); showOnboard(); }

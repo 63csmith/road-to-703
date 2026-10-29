@@ -10,20 +10,23 @@ A 33-week half Ironman (70.3) training plan that installs on an iPhone Home Scre
 - **Logging:** mark each day as Trained or Didn't train, and log time and distance for each workout.
 - **Flexibility:** swap days within a week, switch any workout to another sport, or pick a travel option (bands, rower, gym bike, bodyweight).
 - **Dashboard:** weekly hours against plan, a training calendar, time and distance by sport, and weekly distance.
-- **Team:** everyone on a team can see each other's plans and dashboards, and the Team tab compares them side by side.
+- **Team:** swipe the race bib to see each other's plans and dashboards. The Team tab compares everyone side by side, lets you change the team code, and exports your logs.
 - **Offline:** the app keeps working without a connection and syncs changes when you're back online.
 
 ## Install on iPhone
 
 1. Open the live app link in **Safari**.
 2. Tap **Share**, then **Add to Home Screen**.
-3. Open **70.3** from your Home Screen, then start a team or enter a team code.
+3. Open **70.3** from your Home Screen and enter your team code.
 
 ## How it's built
 
 - One static page (`index.html`), with no build step and no frameworks.
 - `sw.js` caches the app for offline use, and `manifest.webmanifest` and `icons/` make it installable.
-- Data lives in a Supabase Postgres project. The tables have row-level security turned on and no direct access. The page talks only to a small set of functions (`create_team`, `join_team`, `get_team`, `set_log`, `set_week`, `update_member`), and each one checks the team code.
+- Data lives in a Supabase Postgres project. The tables have row-level security turned on and no direct access. The page talks only to a small set of functions (`join_team`, `get_team`, `set_log`, `set_week`, `update_member`, `rotate_team_code`), and each one checks the team code.
+- New teams can't be created from the app. To allow it again, grant `execute` on `public.create_team` to `anon`.
+- `.github/workflows/keep-database-awake.yml` calls `ping()` every 3 days so the free project doesn't pause. GitHub turns off scheduled jobs in a repo with no commits for 60 days and emails a warning first; re-enable it from the Actions tab.
+- **Export logs** on the Team tab downloads a CSV of every logged workout. That's the backup, since free Supabase projects don't include downloadable backups.
 - The key in `index.html` is Supabase's public (publishable) key. It's safe to ship in a public repo because it can only call those functions.
 
 ### Data model
